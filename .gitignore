@@ -1,0 +1,12 @@
+.DS_Store
+.scratchpad/
+output/
+视频总结.html
+
+# 本地 agent 配置
+.claude/
+.cursor/
+.agents/
+
+# Python
+__pycache__/
