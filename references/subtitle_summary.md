@@ -94,7 +94,7 @@ rg -n '^## 原文字幕' "output/标题_总结.md"
 
 - `--subtitle-file` **必填**（除非文件里已有「## 原文字幕」）。Whisper 路径换成转写产出的 `.srt`。
 - 无平台中文轨时省略 `--zh-subtitle-file`；`register` 在仍无原文时会以 `status=error` / `agent_action=fix_original_srt` 失败——须修好后再交付。
-- `append` 输出中 `skip` 表示小节已存在；原文 `error` **阻断交付**；仅中文轨失败时可说明缺失并继续（或进入下节 LLM 翻译询问）。
+- `append` 输出中 `skip` 表示小节已存在；原文 `error` **阻断交付**；仅中文轨失败时可说明缺失并继续。默认不询问、不调用 LLM 翻译。
 - 「原文字幕」「中文字幕」供汇总页「原文」视图与「显示翻译」按钮使用，对话中不展示、不粘贴 SRT 正文。
 
 回填运行统计并再次确认「## 原文字幕」仍在后：
@@ -103,9 +103,9 @@ rg -n '^## 原文字幕' "output/标题_总结.md"
 python3 "$SKILL_DIR/scripts/summarize_pipeline.py" finalize --dir .
 ```
 
-## LLM 翻译中文字幕（无平台中文轨时，必须先征得用户同意）
+## LLM 翻译中文字幕（仅在用户明确要求时）
 
-原语言以 `zh` 开头时无需中文对照。平台中文轨已由 `fetch_video.py` 自动尝试并在 `register` 时附好；只有 probe 未返回 `zh_subtitle_file` 时才询问用户：「该视频没有可下载的中文字幕，是否用 LLM 逐条翻译？（约 N 条字幕，原文与译文会各过一遍模型）」，N 用原文条数或 `translate_srt.py export` 返回的 `cues` 说明。**等到用户明确同意后**才执行：
+原语言以 `zh` 开头时无需中文对照。平台中文轨已由 `fetch_video.py` 自动尝试并在 `register` 时附好；probe 未返回 `zh_subtitle_file` 时默认直接交付，**不要询问用户是否翻译，也不要调用 LLM 翻译**。只有用户在初始请求或后续消息中明确要求翻译字幕时，才执行以下流程。用户只说“总结”“摘要”“讲解”不构成翻译授权。
 
 1. 导出待翻译行：
    ```bash
@@ -121,7 +121,7 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" finalize --dir .
      --md "output/标题_总结.md" --srt "….zh.srt" --heading 中文字幕
    ```
 
-`build` 报缺行/多行时按提示补齐译文文件后重跑，不得跳过校验。追加后重跑 `summarize_pipeline.py finalize --dir .` 刷新汇总页。用户拒绝或未答复则跳过翻译并如实说明该份总结没有中文对照；任一步失败同样如实报告，不阻断交付。多视频批次中，协调者把所有「无平台中文字幕」的视频收集起来一次性询问，不逐个打断。
+`build` 报缺行/多行时按提示补齐译文文件后重跑，不得跳过校验。追加后重跑 `summarize_pipeline.py finalize --dir .` 刷新汇总页。用户未明确要求翻译时直接跳过，不将缺少中文字幕当作阻断项；任一步失败同样如实报告，不阻断交付。多视频批次也不为缺少平台中文字幕暂停或询问。
 
 对话中：单条展示完整正文（不重复运行统计）；多条仅展示元信息、总结和文件路径。常见错误处理：
 

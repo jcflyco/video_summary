@@ -104,7 +104,7 @@ def main() -> None:
     else:
         result["srt"] = {"status": "error", "error": "原文 SRT 缺失"}
 
-    # 3. 附中文字幕（无平台中文轨时留给 LLM 翻译流程，状态为 none）
+    # 3. 附平台中文字幕；无平台中文轨时默认跳过，仅在用户明确要求时另走 LLM 翻译流程
     zh = args.zh_srt or (Path(fetch["zh_subtitle_file"]) if fetch.get("zh_subtitle_file") else None)
     if zh and zh.exists():
         result["zh"] = run_script("append_srt.py",

@@ -18,6 +18,7 @@ $PIPE batch-probe --dir . --scratchpad "$SCRATCH"
 
 - **不得**读取转写稿做总结，**不得**写入 `output/*_总结.md`，**不得** `finalize`。
 - 工作任务若参与探测：只返回状态与元信息；遇到 `no_srt` 只回报，绝不下载音频或运行 Whisper。
+- `upload_date` 必须从 probe 结果写入批次状态，并继续传入 `summarize` action；平台已返回日期时不得降级为「上传日期不可用」。
 
 ## 阶段 B：无字幕先问（硬门禁）
 

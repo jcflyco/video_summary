@@ -544,6 +544,7 @@ def cmd_batch_init(args: argparse.Namespace) -> None:
                 "platform": ref["platform"] if ref else "unknown",
                 "video_id": ref["video_id"] if ref else "",
                 "title": "",
+                "upload_date": "",
                 "probe_status": "pending",
                 "whisper_consent": None,
                 "audio_status": "skipped",
@@ -620,6 +621,7 @@ def cmd_batch_probe(args: argparse.Namespace) -> None:
         item["language"] = payload.get("language") or ""
         item["duration_string"] = payload.get("duration_string") or ""
         item["uploader"] = payload.get("uploader") or ""
+        item["upload_date"] = payload.get("upload_date") or ""
 
         status = payload.get("status")
         item["probe_status"] = status or "error"
@@ -725,6 +727,7 @@ def _batch_status_payload(batch: dict[str, Any]) -> dict[str, Any]:
                         "webpage_url": i.get("webpage_url") or i.get("url"),
                         "uploader": i.get("uploader"),
                         "duration_string": i.get("duration_string"),
+                        "upload_date": i.get("upload_date"),
                         "download_seconds": i.get("download_seconds"),
                         "whisper_seconds": i.get("whisper_seconds"),
                     }
@@ -821,6 +824,7 @@ def _batch_status_payload(batch: dict[str, Any]) -> dict[str, Any]:
             {
                 "video_id": i.get("video_id"),
                 "title": i.get("title"),
+                "upload_date": i.get("upload_date"),
                 "probe_status": i.get("probe_status"),
                 "whisper_consent": i.get("whisper_consent"),
                 "audio_status": i.get("audio_status"),
