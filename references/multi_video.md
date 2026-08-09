@@ -48,13 +48,13 @@ $PIPE batch-set-consent --scratchpad "$SCRATCH" --consent yes --all
 | 环境 | 调度 | 原因 |
 |---|---|---|
 | Claude Code / Codex | 派工作 agent **并行**总结，每个 agent 只处理一个视频 | 子 agent 的用量能独立采样 |
-| **Cursor CLI** | **不得派子 agent；在当前 turn 内按输入顺序串行并自动跑完整批** | Cursor 不记录子 agent token；同 turn 批次统计不可拆分，但无需用户逐条输入「继续」 |
+| **Cursor CLI** | **不得派子 agent；必须优先用嵌套 `cursor-agent` worker 逐条生成正文（单条实测统计），worker 不可用才在当前 turn 内串行并自动跑完整批** | Cursor 不记录子 agent token；嵌套 worker 的 `result` 事件带真实 usage，无需用户逐条输入「继续」 |
 
 Cursor CLI 下完成一条后直接开始下一条，不结束回复、不等待用户说「继续」；唯一暂停点是 Whisper 明示同意等硬门禁。具体统计口径见 `runtime_cursor.md` 的「子 agent 拿不到 Token」一节。
 
 工作 agent（或 Cursor 下的串行处理者）还须读取 `runtime_statistics.md` 与自身运行环境专页，使用自己的会话和唯一 baseline 文件（推荐 `$SCRATCH/<video_id>.<agent>.baseline.json`）完成该视频的统计回填。
 
-Claude Code / Codex **禁止让一个工作 agent generation 同时总结两条视频**。Cursor CLI 是自动续跑例外：允许当前 generation 串行处理整批，但该批每条的 Token / LLM 速度必须写「不可用」（脚本会附上不可拆分原因与本批合计），不得把整轮合计复制到各文件。
+Claude Code / Codex **禁止让一个工作 agent generation 同时总结两条视频**。Cursor CLI 回退串行是例外：允许当前 generation 串行处理整批，该批每条的 Token / LLM 速度由脚本写入**批次实测值**并标注「本批 N 条共用」（stop hook 落地前暂为「不可用（…待回填）」），不得去掉标注把批次值冒充单条用量。
 
 ```bash
 $PIPE batch-mark-summary --scratchpad "$SCRATCH" --video-id ID --status running

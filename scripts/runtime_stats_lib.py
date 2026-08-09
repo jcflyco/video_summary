@@ -312,11 +312,14 @@ def speed_window_seconds(
 def format_llm_speed(
     output_tokens: int,
     window_seconds: int | None,
+    note: str | None = None,
 ) -> str:
     """End-to-end throughput: output tokens ÷ token-attribution window → tok/s.
 
     Includes tool-execution time inside the window, so the label carries
-    「（含工具执行）」 — it is agent throughput, not raw decode speed.
+    「（含工具执行）」 — it is agent throughput, not raw decode speed.  A scope
+    note (e.g. 「本批 3 条共用，端到端」) merges into the same parenthesis so the
+    figure and its qualifier read as one statement.
     """
     # <= 0, not < 0: a run that produced a summary always emitted output tokens, so
     # zero means the usage source was unreadable.  "0.0 tok/s" would dress that up as
@@ -325,7 +328,8 @@ def format_llm_speed(
         return UNAVAILABLE
     if window_seconds is None or window_seconds <= 0:
         return UNAVAILABLE
-    return f"{output_tokens / window_seconds:.1f} tok/s（含工具执行）"
+    suffix = f"（{note}，含工具执行）" if note else "（含工具执行）"
+    return f"{output_tokens / window_seconds:.1f} tok/s{suffix}"
 
 
 def format_stats_section(
@@ -352,8 +356,8 @@ def format_stats_section(
         start_epoch=start_epoch,
         end_epoch=end_epoch,
     )
-    speed_line = format_llm_speed(delta.get("output", -1), window)
-    if speed_note:
+    speed_line = format_llm_speed(delta.get("output", -1), window, note=speed_note)
+    if speed_note and speed_line == UNAVAILABLE:
         speed_line = f"{speed_line}（{speed_note}）"
     lines = [
         "## 运行统计",

@@ -1064,7 +1064,13 @@ def settled_marker_path(conv: str, markdown: Path | str) -> Path:
 
 
 def write_settled_marker(
-    job: dict[str, Any], note: str, reason: str, speed_note: str | None = None
+    job: dict[str, Any],
+    note: str,
+    reason: str,
+    speed_note: str | None = None,
+    *,
+    batch_totals: dict[str, int] | None = None,
+    batch_window: int | None = None,
 ) -> None:
     """Remember that this (conversation, markdown) was settled as unsplittable.
 
@@ -1087,6 +1093,8 @@ def write_settled_marker(
             "note": note,
             "speed_note": speed_note,
             "reason": reason,
+            "batch_totals": batch_totals,
+            "batch_window": batch_window,
             "settled_at": int(time.time()),
         },
     )
@@ -1120,30 +1128,48 @@ def upgrade_settled_notes(conv: str | None) -> int:
     """Re-patch settled markdowns once the aggregate event carries batch totals.
 
     Batches are often settled mid-turn, before the stop hook records any usage, so
-    their note lacks the 本批合计 figures.  Once the event lands, rewrite each
-    settled markdown with the enriched note; the stored note keeps this idempotent.
+    their fields start as 不可用（…待回填）.  Once the event lands, rewrite each
+    settled markdown with the measured batch totals / speed; the stored measurement
+    keeps this idempotent.  Markers are clustered by processing window first: one
+    conversation can hold several batches from different turns, and blending their
+    events would fabricate a combined total no batch ever produced.
     """
     if not conv:
         return 0
     markers = settled_markers_for(conv)
     if not markers:
         return 0
-    jobs = [data["job"] for _path, data in markers]
-    note = batch_token_note(jobs)
-    if "本批合计" not in note:
-        return 0
-    speed_note = batch_speed_note(jobs)
     upgraded = 0
-    for path, data in markers:
-        if data.get("note") == note and data.get("speed_note") == speed_note:
+    for cluster in _cluster_jobs_by_window(
+        [(path, data["job"]) for path, data in markers]
+    ):
+        cluster_paths = {str(path) for path, _job in cluster}
+        cluster_markers = [
+            (path, data) for path, data in markers if str(path) in cluster_paths
+        ]
+        jobs = [data["job"] for _path, data in cluster_markers]
+        delta, window, note, speed_note, measured = batch_settlement(jobs)
+        if not measured:
             continue
-        if apply_stats_job(
-            data["job"], token_note=note, speed_note=speed_note, force_unavailable=True
-        ):
-            data["note"] = note
-            data["speed_note"] = speed_note
-            atomic_write_json(path, data)
-            upgraded += 1
+        for path, data in cluster_markers:
+            if (
+                data.get("batch_totals") == delta
+                and data.get("batch_window") == window
+            ):
+                continue
+            if apply_stats_job(
+                data["job"],
+                token_note=note,
+                speed_note=speed_note,
+                override_delta=delta,
+                override_speed_seconds=window,
+            ):
+                data["note"] = note
+                data["speed_note"] = speed_note
+                data["batch_totals"] = delta
+                data["batch_window"] = window
+                atomic_write_json(path, data)
+                upgraded += 1
     return upgraded
 
 
@@ -1201,6 +1227,8 @@ def apply_stats_job(
     token_note: str | None = None,
     speed_note: str | None = None,
     force_unavailable: bool = False,
+    override_delta: dict[str, int] | None = None,
+    override_speed_seconds: int | None = None,
 ) -> bool:
     conv = job.get("conversation_id")
     baseline_file = Path(str(job.get("baseline_file") or ""))
@@ -1214,7 +1242,13 @@ def apply_stats_job(
     events = window_events(convs, start_epoch, end_epoch)
     last_event_ts = max((number(e.get("ts")) for _k, e in events), default=0) or None
 
-    if force_unavailable:
+    if override_delta is not None:
+        # Unsplittable batch whose aggregate event has landed: the batch totals and
+        # batch window are real measurements, written as the field values with a
+        # 「本批 N 条共用」 label instead of a bare 不可用.
+        delta = dict(override_delta)
+        source = "batch_shared_generation"
+    elif force_unavailable:
         # The window is genuinely unsplittable (several videos, one generation).
         # Write 不可用 plus the batch total rather than leaving the placeholder to rot.
         delta = unavailable_totals()
@@ -1269,7 +1303,11 @@ def apply_stats_job(
         extra_line=job.get("extra_line"),
         phase_timings=job.get("phase_timings"),
         skill_version=job.get("skill_version"),
-        speed_seconds=job_speed_seconds(job, last_event_ts),
+        speed_seconds=(
+            override_speed_seconds
+            if override_delta is not None
+            else job_speed_seconds(job, last_event_ts)
+        ),
         token_note=token_note,
         speed_note=speed_note,
     )
@@ -1321,39 +1359,67 @@ def _batch_events(jobs: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]
     return window_events(convs, start, end)
 
 
-def batch_token_note(jobs: list[dict[str, Any]]) -> str:
-    """Explain an unsplittable batch instead of writing a bare 不可用."""
-    totals = totals_from_events(_batch_events(jobs))
-    if totals.get("total", -1) <= 0:
-        return f"{len(jobs)} 条视频共用一次生成，无法拆分到单条"
-    return (
-        f"{len(jobs)} 条视频共用一次生成，无法拆分到单条；"
-        f"本批合计 输出 {totals['output']:,} · 合计 {totals['total']:,}"
-    )
+def batch_settlement(
+    jobs: list[dict[str, Any]],
+) -> tuple[dict[str, int] | None, int | None, str, str | None, bool]:
+    """Settlement for an unsplittable batch: (delta, speed_seconds, token_note, speed_note, measured).
 
-
-def batch_speed_note(jobs: list[dict[str, Any]]) -> str | None:
-    """Measured batch-level throughput for an unsplittable batch.
-
-    Per-video speed cannot exist (one aggregate event covers the whole turn), but
-    the batch's own window — earliest baseline snapshot to the last attributed
-    event — and its output total are both real measurements, so report them as a
-    labelled 本批 figure instead of leaving the speed line as a bare 不可用.
+    Per-video numbers cannot exist (one aggregate event covers the whole turn), but
+    the batch totals and the batch window — earliest baseline snapshot to the last
+    attributed event — are both real measurements.  Once the aggregate lands, they
+    become the Token / LLM 速度 field values, labelled 「本批 N 条共用」 so nobody
+    reads them as single-video cost.  Before it lands (mid-turn settle), measured is
+    False and the caller writes 不可用 with a 待回填 explanation.
     """
+    n = len(jobs)
     events = _batch_events(jobs)
     totals = totals_from_events(events)
-    output = totals.get("output", -1)
-    if output <= 0:
-        return None
+    pending_note = f"本批 {n} 条共用一次生成，未拆分到单条；批次实测待 stop hook 上报后自动回填"
+    if totals.get("output", -1) <= 0:
+        return None, None, pending_note, None, False
     last_ts = max((number(e.get("ts")) for _k, e in events), default=0)
     starts = [
         number(j.get("baseline_epoch")) or number(j.get("start_epoch")) for j in jobs
     ]
     start = min((s for s in starts if s > 0), default=0)
     if not last_ts or not start or last_ts <= start:
-        return None
+        # Totals without a usable window: never divide batch output by one video's
+        # own window — that would fabricate a per-video-looking speed.
+        return None, None, pending_note, None, False
     window = last_ts - start
-    return f"单条不可拆分；本批 {output:,} tok ÷ {window} 秒 ≈ {output / window:.1f} tok/s，含工具执行"
+    token_note = f"本批 {n} 条共用一次生成，未拆分到单条"
+    speed_note = f"本批 {n} 条共用，端到端"
+    return totals, window, token_note, speed_note, True
+
+
+def _cluster_jobs_by_window(
+    entries: list[tuple[Any, dict[str, Any]]],
+    *,
+    gap_s: int = 60,
+) -> list[list[tuple[Any, dict[str, Any]]]]:
+    """Group (carrier, job) pairs into batches by overlapping processing windows.
+
+    One conversation can settle several batches across different turns (the settled
+    markers live for days).  Summing events across all of them would blend separate
+    batches into one bogus total, so only jobs whose windows touch (within `gap_s`)
+    are treated as the same batch.
+    """
+    def _start(job: dict[str, Any]) -> int:
+        return number(job.get("baseline_epoch")) or number(job.get("start_epoch"))
+
+    ordered = sorted(entries, key=lambda pair: _start(pair[1]))
+    clusters: list[list[tuple[Any, dict[str, Any]]]] = []
+    cluster_end = 0
+    for pair in ordered:
+        job = pair[1]
+        start = _start(job)
+        end = number(job.get("end_epoch")) or start
+        if clusters and start and cluster_end and start <= cluster_end + gap_s:
+            clusters[-1].append(pair)
+        else:
+            clusters.append([pair])
+        cluster_end = max(cluster_end, end)
+    return clusters
 
 
 def flush_pending_stats(conv: str | None) -> int:
@@ -1409,8 +1475,7 @@ def flush_pending_stats(conv: str | None) -> int:
     # pending forever while only the last window happens to include the stop event.
     direct_conversations = {str(job.get("conversation_id") or "") for job in jobs}
     if len(jobs) > 1 and len(direct_conversations) == 1:
-        note = batch_token_note(jobs)
-        speed_note = batch_speed_note(jobs)
+        delta, window, note, speed_note, measured = batch_settlement(jobs)
         for job in jobs:
             markdown = Path(str(job.get("markdown") or ""))
             debug_log(
@@ -1419,9 +1484,21 @@ def flush_pending_stats(conv: str | None) -> int:
             )
             print(f"PATCH_UNSPLITTABLE=same_turn_batch markdown={markdown}")
             if apply_stats_job(
-                job, token_note=note, speed_note=speed_note, force_unavailable=True
+                job,
+                token_note=note,
+                speed_note=speed_note,
+                force_unavailable=not measured,
+                override_delta=delta,
+                override_speed_seconds=window,
             ):
-                write_settled_marker(job, note, "same_turn_multiple_jobs", speed_note)
+                write_settled_marker(
+                    job,
+                    note,
+                    "same_turn_multiple_jobs",
+                    speed_note,
+                    batch_totals=delta,
+                    batch_window=window,
+                )
                 patched += 1
         return patched
 
@@ -1436,8 +1513,7 @@ def flush_pending_stats(conv: str | None) -> int:
 
     if ambiguous:
         shared = [jobs[idx] for idx in sorted(ambiguous)]
-        note = batch_token_note(shared)
-        speed_note = batch_speed_note(shared)
+        delta, window, note, speed_note, measured = batch_settlement(shared)
         for job in shared:
             markdown = Path(str(job.get("markdown") or ""))
             debug_log(
@@ -1446,9 +1522,21 @@ def flush_pending_stats(conv: str | None) -> int:
             )
             print(f"PATCH_UNSPLITTABLE=shared_generation markdown={markdown}")
             if apply_stats_job(
-                job, token_note=note, speed_note=speed_note, force_unavailable=True
+                job,
+                token_note=note,
+                speed_note=speed_note,
+                force_unavailable=not measured,
+                override_delta=delta,
+                override_speed_seconds=window,
             ):
-                write_settled_marker(job, note, "shared_generation_event", speed_note)
+                write_settled_marker(
+                    job,
+                    note,
+                    "shared_generation_event",
+                    speed_note,
+                    batch_totals=delta,
+                    batch_window=window,
+                )
                 patched += 1
 
     safe_jobs = [job for idx, job in enumerate(jobs) if idx not in ambiguous]
@@ -1492,12 +1580,9 @@ def snapshot_baseline(path: Path, conv: str | None) -> dict[str, Any]:
         "context": context or {},
         "model_raw": model_raw,
         "model_effort": effort,
-        # Cursor CLI may use an explicit model while the desktop Composer setting is
-        # still "default"/Auto.  Never freeze Auto into the baseline; the stop hook
+        # Never freeze pre-run desktop storage model into the baseline; the stop hook
         # will report the concrete model that actually handled this generation.
-        "model_friendly": (
-            friendly_model(model_raw, effort) if is_concrete_model(model_raw) else "不可用"
-        ),
+        "model_friendly": "不可用",
         # Snapshot time doubles as the start of the LLM 速度 window: every output token
         # counted in the delta was produced after this instant.
         "saved_at": int(time.time()),
@@ -1714,6 +1799,13 @@ def resolve_delta(
         delta = subtract(current, base_totals)
         if ledger_has_new_usage(conv, base_totals, base_events) and has_usable_delta(delta):
             return delta, "ledger"
+
+    # If hook is installed or a ledger is tracked for this conversation, wait for the stop-hook
+    # event for this run. Do NOT accept mid-turn statusline context_delta as final, as that causes
+    # premature finalize with incomplete tokens, wrong model name, and distorted LLM speed.
+    hook_installed = (Path.home() / ".cursor/hooks/cursor-usage-hook.sh").is_file()
+    if ledger is not None or hook_installed:
+        return unavailable_totals(), "await_hook"
 
     ctx_delta, ctx_source = context_delta(conv, baseline_file)
     if has_usable_delta(ctx_delta):
@@ -1989,12 +2081,8 @@ def resolve_model(conv: str | None, baseline_file: Path | None = None) -> str:
         )
 
     if base:
-        raw = str(base.get("model_raw") or "")
-        if is_concrete_model(raw):
-            return friendly_model(raw, base.get("model_effort"))
-        friendly = str(base.get("model_friendly") or "")
-        if is_concrete_model(friendly):
-            return friendly
+        # Before a new stop-hook event arrives for this run, the model for this run is not yet known.
+        # Do NOT fall back to pre-run storage or baseline model, as that belongs to prior runs.
         return "不可用"
 
     raw = str((ledger or {}).get("model") or "")
@@ -2440,7 +2528,14 @@ def main() -> None:
     if args.flush_pending:
         target = args.conversation_id or conv
         count = flush_pending_stats(target)
+        # Settled batches whose aggregate event landed after settlement upgrade from
+        # 不可用（待回填） to the measured batch totals here too, so the next-turn
+        # `--flush-pending` refresh (before rebuilding the HTML) picks them up even
+        # when the stop hook could not.
+        upgraded = upgrade_settled_notes(target)
         print(f"FLUSHED={count}")
+        if upgraded:
+            print(f"UPGRADED_SETTLED={upgraded}")
         return
 
     if args.ensure_stats:
