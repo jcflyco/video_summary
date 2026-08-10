@@ -2,7 +2,7 @@
 name: video-summary
 description: 给定一个或多个 YouTube / Bilibili / 小红书 / Apple Podcasts / 小宇宙 / 长桥直播（Longbridge lives）链接，优先下载原语言字幕并生成带时间戳的中文总结、保存为 Markdown；无字幕时先征得用户同意，再下载音频并以本地 whisper-large-v3-turbo 转写（macOS Apple Silicon 用 MLX，其他平台用 faster-whisper）。当用户要求总结、摘要、讲解或查看上述平台视频/播客时使用。
 metadata:
-  version: "2026.08.09"
+  version: "2026.08.10"
 ---
 
 # video_summary — 视频字幕总结
@@ -73,7 +73,7 @@ metadata:
 ## 单条流程
 
 1. 记录运行统计基线（见 `runtime_statistics.md`）。
-2. `summarize_pipeline.py check` → `cached` 则回复路径并结束（cached 文件也须已有「## 原文字幕」，否则当 miss 重跑附原文）。
+2. `summarize_pipeline.py check` → `cached` 则回复路径并结束（cached 文件也须已有「## 原文字幕」，否则当 miss 重跑附原文）。cached 响应现在也会自动确保本地播放服务在运行并返回 `server_running` / `url`，交付时把该 `url` 一并告知；`server_running=false` 时如实说明播放器暂不可用。
 3. `probe`。`ok` 时读压缩转写稿并总结；`no_srt` 时按 `whisper.md` 询问并暂停；`error` 时报告真实错误（含小红书 `hint`）。
 4. 按 `subtitle_summary.md` 生成并保存正文 → `register --subtitle-file …`（必填）→ 回填运行统计 → 核验原文小节 → `finalize`。
 5. 交付时附上 HTML 路径与 `finalize` 返回的 `url`。

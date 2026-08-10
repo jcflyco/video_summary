@@ -111,6 +111,22 @@ def item_by_id(batch: dict[str, Any], video_id: str) -> dict[str, Any] | None:
     return None
 
 
+def ensure_local_server(work_dir: Path) -> dict[str, Any]:
+    """缓存命中等不经 finalize 的出口也确保本地播放服务在运行（file:// 无法内嵌 YouTube）。"""
+    try:
+        from build_html import dir_port, ensure_server  # noqa: E402
+
+        base = str(work_dir)
+        port = dir_port(base)
+        running = ensure_server(base, port)
+        return {
+            "server_running": running,
+            "url": f"http://127.0.0.1:{port}/视频总结.html",
+        }
+    except Exception as exc:  # 服务拉起失败不阻断主流程，如实报告
+        return {"server_running": False, "server_error": str(exc)}
+
+
 def cmd_check(args: argparse.Namespace) -> None:
     work_dir = Path(args.dir).resolve()
     ref = parse_media_ref(args.url)
@@ -128,6 +144,7 @@ def cmd_check(args: argparse.Namespace) -> None:
                 "title": hit.get("title") or "",
                 "agent_action": "reuse",
                 "message": "已有总结，直接复用；用户要求重跑时加 --force",
+                **ensure_local_server(work_dir),
             }
         )
     emit(
@@ -158,6 +175,7 @@ def cmd_probe(args: argparse.Namespace) -> None:
                     "abs_path": hit["abs_path"],
                     "title": hit.get("title") or "",
                     "agent_action": "reuse",
+                    **ensure_local_server(work_dir),
                 }
             )
 

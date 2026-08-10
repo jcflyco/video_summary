@@ -1,7 +1,6 @@
 .DS_Store
 .scratchpad/
-output/
-视频总结.html
+output/.trash/
 
 # 本地 agent 配置
 .claude/

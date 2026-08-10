@@ -16,6 +16,8 @@ SCRATCH="${SCRATCHPAD:-.scratchpad}/video_summary"
 # 1) 去重（A3）
 $PIPE check --dir . --url "URL"
 # status=cached → 回复路径并结束；miss → 继续
+# cached / probe-cached 响应也会自动拉起本地播放服务，并返回 server_running / url；
+# 交付时附上 url（server_running=false 时如实说明播放器暂不可用）
 
 # 2) 探测字幕（内含再次 check）
 $PIPE probe --dir . --scratchpad "$SCRATCH" --url "URL"

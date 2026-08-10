@@ -17,7 +17,7 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" probe \
 - `ok`：只读取 `transcript_file` 的 `.txt`；过大时分段读取至完整。记住 `subtitle_file` / `zh_subtitle_file` 供 `register` 附 SRT。
 - `no_srt`：转入 `whisper.md`，先等待用户同意（小红书 / Apple Podcasts / 小宇宙常见）。
 - `error`：如实报告错误与 `hint`（若有），不把获取失败误判为无字幕。
-- `cached`：回复已有路径，除非用户要求重跑（`--force`）；重跑必须另存，绝不覆盖。
+- `cached`：回复已有路径，除非用户要求重跑（`--force`）；重跑必须另存，绝不覆盖。cached 响应会自动拉起本地播放服务并附 `server_running` / `url`，交付时把 `url` 一并告知。
 
 原文字幕选择固定为：原语言人工字幕 > 原语言自动字幕 > 无字幕；忽略 B 站 `danmaku`。自动字幕成稿只写「自动生成」。
 
