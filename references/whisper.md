@@ -19,7 +19,7 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" download-audio \
 # 多视频批次加 --batch，以便更新 batch_state 并允许与总结重叠（B5）
 ```
 
-读取 JSON：`status=ok` 时用 `audio_file` 与 `download_seconds`；`error` 时报告 `error`/`hint` 并停止。内部调用 `fetch_audio.py`：YouTube / Bilibili / 小红书走 yt-dlp；Apple Podcasts / 小宇宙走公开音频直链。小红书可能短暂拉取含画面的媒体再抽出音轨，属允许例外；不得为此保存视频到用户目录。ffmpeg 缺失时，在用户同意后按平台安装：macOS 可用 `brew install ffmpeg`；Windows 可用 `winget install Gyan.FFmpeg` 或从 [ffmpeg.org](https://ffmpeg.org/download.html) 安装并加入 PATH；也可用各平台包管理器等价方式。详见仓库 `README.md`。
+读取 JSON：`status=ok` 时用 `audio_file` 与 `download_seconds`；`error` 时报告 `error`/`hint` 并停止。内部调用 `fetch_audio.py`：YouTube / Bilibili / 小红书 / X 走 yt-dlp；Apple Podcasts / 小宇宙走公开音频直链。小红书可能短暂拉取含画面的媒体再抽出音轨，属允许例外；不得为此保存视频到用户目录。ffmpeg 缺失时，在用户同意后按平台安装：macOS 可用 `brew install ffmpeg`；Windows 可用 `winget install Gyan.FFmpeg` 或从 [ffmpeg.org](https://ffmpeg.org/download.html) 安装并加入 PATH；也可用各平台包管理器等价方式。详见仓库 `README.md`。
 
 ## 后端选择（不可违反）
 

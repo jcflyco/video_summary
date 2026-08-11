@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Fetch media metadata, pick original-language subtitles, download and compact.
 
-Supports: YouTube, Bilibili, Xiaohongshu, Apple Podcasts, Xiaoyuzhou FM, Longbridge lives.
-Podcast / XHS notes usually have no timed captions → status no_srt with metadata.
+Supports: YouTube, Bilibili, Xiaohongshu, X (Twitter), Apple Podcasts, Xiaoyuzhou FM,
+Longbridge lives.
+Podcast / XHS notes / X videos usually have no timed captions → status no_srt with metadata.
 Longbridge lives expose platform transcripts via REST → status ok with a built SRT.
 """
 from __future__ import annotations
@@ -34,7 +35,7 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 # Platforms that use yt-dlp subtitle pipeline (cookies + dump-json / list-subs).
-YTDLP_PLATFORMS = frozenset({"youtube", "bilibili", "xiaohongshu"})
+YTDLP_PLATFORMS = frozenset({"youtube", "bilibili", "xiaohongshu", "x"})
 # Platforms that resolve metadata outside yt-dlp and almost never have timed subs here.
 PODCAST_PLATFORMS = frozenset({"apple_podcasts", "xiaoyuzhou"})
 
@@ -73,6 +74,8 @@ def detect_platform(url: str) -> str:
         return "apple_podcasts"
     if "longbridge.com" in lower or "longbridge.cn" in lower:
         return "longbridge"
+    if host in ("x.com", "twitter.com", "mobile.twitter.com"):
+        return "x"
     return "unknown"
 
 
@@ -922,6 +925,18 @@ def fetch_longbridge(url: str, scratchpad: Path) -> tuple[dict, int]:
     )
 
 
+# ----- X (Twitter) helpers -----
+
+# yt-dlp 对 X 返回的 id 是媒体 amplify id，与推文 URL 的 status id 不同；
+# 去重索引与正文链接都以 URL 的 status id 为准，统一覆盖。
+X_STATUS_RE = re.compile(r"/status/(\d+)")
+
+
+def x_status_id(url: str) -> str | None:
+    m = X_STATUS_RE.search(url)
+    return m.group(1) if m else None
+
+
 # ----- Xiaohongshu helpers -----
 
 
@@ -970,6 +985,11 @@ def fetch_ytdlp(
         m = re.search(r"/explore/([0-9a-fA-F]+)", url)
         if m:
             info["id"] = m.group(1)
+
+    if platform == "x":
+        sid = x_status_id(info.get("webpage_url") or url)
+        if sid:
+            info["id"] = sid
 
     sub_source = enrich_subtitles(info, url, browser)
     selection = select_subtitle(info, platform)

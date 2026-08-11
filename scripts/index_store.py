@@ -23,6 +23,7 @@ XHS_RE = re.compile(r"xiaohongshu\.com/explore/([0-9a-fA-F]{24})")
 APPLE_RE = re.compile(r"podcasts\.apple\.com/[^)\s]*?[?&]i=(\d+)")
 XYZ_RE = re.compile(r"xiaoyuzhoufm\.com/episode/([0-9a-fA-F]+)")
 LONGBRIDGE_RE = re.compile(r"longbridge\.(?:com|cn)/(?:[^)\s]*?/)?lives/(\d+)")
+X_RE = re.compile(r"(?:x|twitter)\.com/[^)\s]*?status/(\d+)")
 
 
 def detect_platform(url: str) -> str:
@@ -41,6 +42,8 @@ def detect_platform(url: str) -> str:
         return "apple_podcasts"
     if "longbridge.com" in lower or "longbridge.cn" in lower:
         return "longbridge"
+    if host in ("x.com", "twitter.com", "mobile.twitter.com"):
+        return "x"
     return "unknown"
 
 
@@ -65,6 +68,9 @@ def extract_id_from_url(url: str, platform: str | None = None) -> str | None:
         return m.group(1) if m else None
     if platform == "longbridge":
         m = re.search(r"/lives/(\d+)", url)
+        return m.group(1) if m else None
+    if platform == "x":
+        m = re.search(r"/status/(\d+)", url)
         return m.group(1) if m else None
     return None
 
@@ -227,6 +233,8 @@ def extract_refs_from_markdown(text: str) -> list[dict[str, str]]:
         add("xiaoyuzhou", m.group(1))
     for m in LONGBRIDGE_RE.finditer(text):
         add("longbridge", m.group(1))
+    for m in X_RE.finditer(text):
+        add("x", m.group(1))
     return found
 
 

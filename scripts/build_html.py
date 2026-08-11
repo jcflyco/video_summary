@@ -200,6 +200,11 @@ body.player-hidden #player-wrap{display:none}
       if(!lm) return null;
       return {platform:'longbridge', id:lm[1], t:parseTime(u.searchParams.get('t'))};
     }
+    if(host === 'x.com' || host === 'twitter.com' || host === 'mobile.twitter.com'){
+      var tm = u.pathname.match(/\/status\/(\d+)/);
+      if(!tm) return null;
+      return {platform:'x', id:tm[1], t:parseTime(u.searchParams.get('t'))};
+    }
     return null;
   }
 
@@ -216,6 +221,8 @@ body.player-hidden #player-wrap{display:none}
     if(m) return {platform:'xiaohongshu', id:m[1]};
     m = md.match(/longbridge\.(?:com|cn)\/[^)\s]*?\/lives\/(\d+)/);
     if(m) return {platform:'longbridge', id:m[1]};
+    m = md.match(/(?:x|twitter)\.com\/[^)\s]*?status\/(\d+)/);
+    if(m) return {platform:'x', id:m[1]};
     return null;
   }
 
@@ -419,6 +426,15 @@ body.player-hidden #player-wrap{display:none}
       f.style.display='';
       var c = video.country || 'us';
       f.src = 'https://embed.podcasts.apple.com/'+c+'/podcast/id'+video.collectionId+'?i='+video.id+(t?('&t='+t):'');
+    }else if(video.platform === 'x'){
+      /* 官方推文嵌入可直接播放视频，但不支持秒级定位/自动播放 */
+      f.style.display='';
+      f.src = 'https://platform.twitter.com/embed/Tweet.html?id='+video.id+'&theme=' +
+        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      if(notice){
+        notice.hidden = false;
+        notice.textContent = 'X 推文播放器不支持时间戳跳转；点击正文时间戳将在新标签页打开原推文。';
+      }
     }else{
       f.removeAttribute('src');
       f.style.display='none';
@@ -679,7 +695,7 @@ body.player-hidden #player-wrap{display:none}
     var p = parseVideoLink(a.href);
     var cur = state.docs[state.cur];
     if(!p || !cur || !cur.video || p.id !== cur.video.id) return;
-    if(p.platform === 'xiaohongshu' || p.platform === 'xiaoyuzhou') return;
+    if(p.platform === 'xiaohongshu' || p.platform === 'xiaoyuzhou' || p.platform === 'x') return;
     if(p.t != null){
       e.preventDefault();
       setPlayerHidden(false);

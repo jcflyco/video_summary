@@ -15,7 +15,7 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" probe \
 `check` / `probe` 查 `output/.index.json`（A3）；`cached` 则复用已有 Markdown。`probe` 内部调用 `fetch_video.py`（元信息、原语言、Cookie 回退、人工字幕优先、原文+中文轨下载、自动字幕去重、压缩）；禁止手写 `yt-dlp --list-subs`、`--print` 或直接读取 `.srt/.vtt`。JSON 核心字段：`status`、`agent_action`、`title`、`uploader`、`duration_string`、`upload_date`、`language`、`video_id`、`platform`、`subtitle_type`、`subtitle_lang`、`transcript_file`、`subtitle_file`、`zh_subtitle_file`、`download_seconds`、`webpage_url`；`no_srt` 时可能含 `audio_url`、`hint`。
 
 - `ok`：只读取 `transcript_file` 的 `.txt`；过大时分段读取至完整。记住 `subtitle_file` / `zh_subtitle_file` 供 `register` 附 SRT。
-- `no_srt`：转入 `whisper.md`，先等待用户同意（小红书 / Apple Podcasts / 小宇宙常见）。
+- `no_srt`：转入 `whisper.md`，先等待用户同意（小红书 / X / Apple Podcasts / 小宇宙常见）。
 - `error`：如实报告错误与 `hint`（若有），不把获取失败误判为无字幕。
 - `cached`：回复已有路径，除非用户要求重跑（`--force`）；重跑必须另存，绝不覆盖。cached 响应会自动拉起本地播放服务并附 `server_running` / `url`，交付时把 `url` 一并告知。
 
@@ -30,6 +30,7 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" probe \
 | YouTube | `watch`、`youtu.be`、`shorts` | 11 位视频 ID |
 | Bilibili | `BV…`、`b23.tv` | BV 号 |
 | 小红书 | `xiaohongshu.com/explore/` | 24 位 note id（去重用）；完整链接宜含 `xsec_token` |
+| X（Twitter） | `x.com`／`twitter.com/…/status/` | URL 中的 status 数字 id（非 yt-dlp 返回的媒体 id） |
 | Apple Podcasts | `podcasts.apple.com/.../id…?i=` | 单集 `i=` 数字 ID |
 | 小宇宙 | `xiaoyuzhoufm.com/episode/` | episode id |
 | 长桥直播 | `longbridge.com`／`longbridge.cn/.../lives/` | lives 数字 ID |
@@ -45,6 +46,7 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" probe \
 - YouTube：`https://www.youtube.com/watch?v=VIDEO_ID&t=秒数s`
 - Bilibili：`https://www.bilibili.com/video/BVxxxx?t=秒数`
 - 小红书：保留用户提供的完整 explore 链接（含 `xsec_token` 若有），时间戳用同一 URL（平台未必支持秒级跳转，仍须带可点击原链）
+- X（Twitter）：`https://x.com/{USER}/status/{ID}`（用 `webpage_url`；平台不支持秒级跳转，时间戳统一用同一推文链接，仍须可点击）
 - Apple Podcasts：`https://podcasts.apple.com/{country}/podcast/id{COLLECTION}?i={EPISODE}#t=秒数`
 - 小宇宙：`https://www.xiaoyuzhoufm.com/episode/{EID}?t=秒数`
 - 长桥直播：`https://longbridge.com/zh-CN/lives/{ID}`（平台未必支持秒级跳转，仍须带可点击原链；用 `webpage_url` 为基链）

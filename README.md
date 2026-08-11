@@ -11,6 +11,7 @@ Agent 执行细则见 [`SKILL.md`](./SKILL.md)；本文件给人看（安装、�
 | YouTube | `youtube.com/watch`、`youtu.be`、`shorts` | 优先字幕 |
 | Bilibili | `bilibili.com/video/BV…`、`b23.tv` | 优先字幕 |
 | 小红书 | `xiaohongshu.com/explore/…`（宜含 `xsec_token`） | 通常无字幕；需浏览器已登录 |
+| X（Twitter） | `x.com/<user>/status/<id>`、`twitter.com/…` | 通常无字幕；公开推文无需登录，受限内容回退浏览器 Cookie |
 | Apple Podcasts | `podcasts.apple.com/…/id…?i=…`（须含单集 `i=`） | 通常无字幕；走音频 |
 | 小宇宙 | `xiaoyuzhoufm.com/episode/…` | 通常无字幕；走公开音频直链 |
 | 长桥直播 | `longbridge.com`／`longbridge.cn/…/lives/<id>` | 走平台逐字稿（公开 REST，无需登录/yt-dlp）；不支持音频/Whisper |

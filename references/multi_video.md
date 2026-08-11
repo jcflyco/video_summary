@@ -1,6 +1,6 @@
 # 多视频模式
 
-提取、去重并保序所有支持的 URL（YouTube / Bilibili / 小红书 / Apple Podcasts / 小宇宙）；不支持链接说明后跳过。协调者只记录批次墙钟；**每条视频必须在独立 agent generation / session 内建立自己的 Token baseline**，编排一律走 `summarize_pipeline.py`（见 `pipeline.md`）。
+提取、去重并保序所有支持的 URL（YouTube / Bilibili / 小红书 / X / Apple Podcasts / 小宇宙 / 长桥直播）；不支持链接说明后跳过。协调者只记录批次墙钟；**每条视频必须在独立 agent generation / session 内建立自己的 Token baseline**，编排一律走 `summarize_pipeline.py`（见 `pipeline.md`）。
 
 ```bash
 PIPE='python3 "$SKILL_DIR/scripts/summarize_pipeline.py"'

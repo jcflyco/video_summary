@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Download audio-only media for Whisper transcription.
 
-Supports: YouTube, Bilibili, Xiaohongshu (yt-dlp + cookies),
+Supports: YouTube, Bilibili, Xiaohongshu, X/Twitter (yt-dlp + cookies),
 Apple Podcasts / Xiaoyuzhou FM (direct enclosure / og:audio).
 """
 from __future__ import annotations
@@ -167,6 +167,10 @@ def extract_id(url: str, platform: str, info: dict | None = None) -> str:
         m = re.search(r"(BV[A-Za-z0-9]+)", url)
         if m:
             return m.group(1)
+    if platform == "x":
+        m = re.search(r"/status/(\d+)", url)
+        if m:
+            return m.group(1)
     return "audio"
 
 
@@ -223,7 +227,8 @@ def main() -> None:
                 browser = browser or browser2
                 info.update(
                     {
-                        "id": meta.get("id") or video_id,
+                        # X 的 yt-dlp id 是媒体 id，不是 status id；保留 URL 提取值
+                        "id": video_id if platform == "x" else (meta.get("id") or video_id),
                         "title": meta.get("title") or "",
                         "uploader": meta.get("uploader") or meta.get("channel"),
                         "duration": meta.get("duration"),
