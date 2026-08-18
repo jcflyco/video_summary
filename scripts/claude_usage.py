@@ -298,6 +298,7 @@ def finalize(
             delta.get("output", -1),
             speed_window_seconds(
                 speed_seconds=speed_seconds,
+                fallback_seconds=summary_seconds,
                 start_epoch=start_epoch,
                 end_epoch=end_epoch,
             ),

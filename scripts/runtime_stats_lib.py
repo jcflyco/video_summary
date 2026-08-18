@@ -293,19 +293,22 @@ def format_duration_with_phases(
 def speed_window_seconds(
     *,
     speed_seconds: int | None,
+    fallback_seconds: int | None = None,
     start_epoch: int,
     end_epoch: int,
 ) -> int:
     """Wall-clock of the window the counted output tokens were actually produced in.
 
-    `speed_seconds` is the measured span (baseline snapshot → last attributed usage
-    event) when the runtime can supply per-event timestamps; otherwise fall back to the
-    video's own processing window.  Never fall back to `summary_seconds`: the numerator
-    covers the whole agent turn (probing, tool loops, delivery), so dividing it by one
-    sub-phase inflated throughput 2–3× — that was the old bug, not a rounding detail.
+    `speed_seconds` is the measured span (summary baseline snapshot → last attributed
+    usage event).  The baseline is taken only after the transcript is ready, so both the
+    token numerator and this denominator exclude download, Whisper, and user-consent
+    waits.  If event timestamps are unavailable, use the measured summary phase; retain
+    START→END only as a legacy fallback for old records without summary timing.
     """
     if speed_seconds is not None and speed_seconds > 0:
         return int(speed_seconds)
+    if fallback_seconds is not None and fallback_seconds > 0:
+        return int(fallback_seconds)
     return max(0, int(end_epoch) - int(start_epoch))
 
 
@@ -316,8 +319,9 @@ def format_llm_speed(
 ) -> str:
     """End-to-end throughput: output tokens ÷ token-attribution window → tok/s.
 
-    Includes tool-execution time inside the window, so the label carries
-    「（含工具执行）」 — it is agent throughput, not raw decode speed.  A scope
+    Includes tool-execution time inside the summary window, so the label carries
+    「（总结阶段，含工具执行）」 — it is summary-stage agent throughput, not raw
+    decode speed.  Media download, Whisper, and consent waits are outside this window. A scope
     note (e.g. 「本批 3 条共用，端到端」) merges into the same parenthesis so the
     figure and its qualifier read as one statement.
     """
@@ -328,7 +332,7 @@ def format_llm_speed(
         return UNAVAILABLE
     if window_seconds is None or window_seconds <= 0:
         return UNAVAILABLE
-    suffix = f"（{note}，含工具执行）" if note else "（含工具执行）"
+    suffix = f"（{note}，总结阶段，含工具执行）" if note else "（总结阶段，含工具执行）"
     return f"{output_tokens / window_seconds:.1f} tok/s{suffix}"
 
 
@@ -351,8 +355,13 @@ def format_stats_section(
     token_line = format_token_line(delta, input_mode=input_mode)
     if token_note:
         token_line = f"{token_line}（{token_note}）"
+    summary_fallback = None
+    phases = normalize_phase_timings(phase_timings)
+    if phases and phases.get("summary_seconds") is not None:
+        summary_fallback = phases["summary_seconds"]
     window = speed_window_seconds(
         speed_seconds=speed_seconds,
+        fallback_seconds=summary_fallback,
         start_epoch=start_epoch,
         end_epoch=end_epoch,
     )

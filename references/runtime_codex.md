@@ -10,14 +10,21 @@
 
 `$SKILL_DIR` = 本 skill 根目录。使用 `scripts/codex_usage.py`：读 Codex rollout 累计 usage，并写入完整「运行统计」块（含 **LLM 速度**）。
 
-开始时（多视频须由当前视频的独立工作 agent snapshot 唯一 baseline；墙钟也按当前视频记）：
+任务开始时先做环境预检，但不要提前 snapshot：
 
 ```bash
 python3 "$SKILL_DIR/scripts/codex_usage.py" --doctor           # 预检，非零退出即降级
-python3 "$SKILL_DIR/scripts/codex_usage.py" --snapshot-baseline "$BASELINE"
-# 记下输出中的 SESSION_FILE=… 供结束时复用
-date +"START %Y-%m-%d %H:%M:%S (%s)"   # 本视频 START
 ```
+
+字幕探测或 Whisper 完成、`transcript_file` 已就绪后，在读取转写稿之前 snapshot 唯一的**总结 baseline**：
+
+```bash
+python3 "$SKILL_DIR/scripts/codex_usage.py" --snapshot-baseline "$BASELINE"
+# 记下输出中的 SESSION_FILE=… 供结束时复用；此前下载、Whisper、确认等待不计 Token / LLM 速度
+date +"SUMMARY_START %Y-%m-%d %H:%M:%S (%s)"
+```
+
+本视频整体 `START` 仍按 `runtime_statistics.md` 在下载/字幕阶段记录，用于开始时间与阶段明细。
 
 会话定位优先 `CODEX_THREAD_ID`；该变量未导出时回退到 `$CODEX_HOME/sessions` 下 6 小时内最新的 rollout（超时则判定无活跃会话，不冒充旧会话）。
 
@@ -44,7 +51,7 @@ rg -n '^## 原文字幕' "$MD_PATH"
 - 输出 = `Δoutput`；缓存读 = `Δcache_read`
 - 缓存写 = `Δcache_write`，取 rollout 的 `cache_write_input_tokens`（Codex 的真实字段名；不是 Anthropic 风格的 `cache_creation_input_tokens`）
 - 合计优先用 rollout 的 `total_tokens`，缺失时回退四项差值之和
-- **LLM 速度** = 输出 token ÷ `--summary-seconds`（1 位小数 + `tok/s`）；输出或总结用时不可用时写「不可用」
+- **LLM 速度** = 总结 baseline 后的输出 token ÷ baseline 到最后归属用量事件的窗口，写成 `tok/s（总结阶段，含工具执行）`；事件时间戳不可用时才回退 `--summary-seconds`
 
 模型：优先 `--model-name`；否则脚本从会话读取；取不到写「不可用」。
 
@@ -53,7 +60,7 @@ rg -n '^## 原文字幕' "$MD_PATH"
 ## 规则
 
 - **不得**手写或改写脚本写入的「运行统计」数字行（含 Token / LLM 速度）；只能通过上述 `--finalize` 回填。
-- 多视频必须一条视频一个工作 agent / thread 和一个 baseline 文件；禁止复用整批 baseline 后把同一累计 delta 写入多个 Markdown。
+- 多视频必须一条视频一个工作 agent / thread 和一个总结 baseline 文件；工作 agent 只能在该条转写稿就绪后 snapshot，禁止复用整批 baseline。
 - 「用时」= 下载用时 + 总结用时（Whisper 时再加语音转写用时）；起止 epoch 必须是该视频自身窗口。
 - 不要调用 `cursor_usage.py` 或 `claude_usage.py`。
 

@@ -2,7 +2,7 @@
 name: video-summary
 description: 给定一个或多个 YouTube / Bilibili / 小红书 / X（Twitter）/ Apple Podcasts / 小宇宙 / 长桥直播（Longbridge lives）链接，优先下载原语言字幕并生成带时间戳的中文总结、保存为 Markdown；无字幕时先征得用户同意，再下载音频并以本地 whisper-large-v3-turbo 转写（macOS Apple Silicon 用 MLX，其他平台用 faster-whisper）。当用户要求总结、摘要、讲解或查看上述平台视频/播客时使用。
 metadata:
-  version: "2026.08.11"
+  version: "2026.08.18"
 ---
 
 # video_summary — 视频字幕总结
@@ -68,19 +68,20 @@ metadata:
 5. 开始前用 pipeline `check`（或 `probe`）查 `output/.index.json`；已总结则复用，除非用户要求重跑（`--force`）。重跑必须另存，绝不覆盖。正文不单独写「视频 ID」行，也不得写入文件名——去重依赖索引与正文链接中的真实 ID。
 6. 总结必须为中文，带可点击时间戳、最多 3 句金句，以及最多 3 条行动建议/启发。自动字幕标「自动生成」；Whisper 标「语音转写（Whisper large-v3-turbo）」。
 7. Whisper 后端：macOS Apple Silicon 必须用 MLX（`mlx-community/whisper-large-v3-turbo`）；其他平台用 faster-whisper。详见 `whisper.md`。
-8. 每份成功 Markdown 必须有「运行统计」（建议在字幕小节之后），字段依次为：模型、**Skill 版本**、开始时间、完成时间、用时、Token 用量、LLM 速度。用时须写成一行括号拆分：有 Whisper 为 `用时：…（下载用时：…，语音转写用时：…，总结用时：…）`；无 Whisper 为 `用时：…（下载用时：…，总结用时：…）`。**「用时」= 该条各阶段之和**，只计本条实际处理；不得计入等待用户确认、其他条目或整批闲置。**Skill 版本**取自本文件 frontmatter 的 `metadata.version`，由脚本写成 `v2026.07.30`。**LLM 速度** = 输出 token ÷ **token 归属窗口秒数**（baseline snapshot → 最后一次归属用量事件；拿不到事件时间戳时退回该条 `END − START`），保留 1 位小数，写成 `92.7 tok/s（含工具执行）`；**分母不是「总结用时」**——分子是整轮 turn 的输出增量，用单个子阶段当分母会让数字虚高 2–3 倍。输出不可用或窗口 ≤ 0 时写「不可用」。**「输出」是相对 baseline 的模型增量（可含思考/工具），不是总结正文字数，也不是字幕附录**；若输出≈整会话累计，按当前 agent 专页修复后再交付。Claude Code / Codex 多视频必须一条一个独立工作 agent generation / session 和唯一 baseline；Cursor CLI 多视频**必须**优先经嵌套 worker 逐条实测（`--finalize-from-result`，见 `runtime_cursor.md`）；仅嵌套 worker 不可用而自动续跑的多条共用一次 generation 时，脚本会把**批次实测值**写进各条字段并标注口径——Token 行如 `输出 32,975 · 合计 …（本批 3 条共用一次生成，未拆分到单条）`，速度行如 `119.5 tok/s（本批 3 条共用，端到端，含工具执行）`；批次事件未落地前暂为「不可用（…待回填）」，本轮 stop hook 后自动升级为实测值。批次值必须带「本批」标注，禁止去掉标注冒充单条用量。统计不可用时写「不可用」，不得补零或估算。**Cursor / Claude / Codex 均须用各自 `*_usage.py` 回填统计块（含 Token、LLM 速度与 Skill 版本），禁止手写数字行**；不得跨环境调用脚本。pipeline 的 `download_seconds` / `whisper_seconds` 可直接用作阶段秒数。
+8. 每份成功 Markdown 必须有「运行统计」（建议在字幕小节之后），字段依次为：模型、**Skill 版本**、开始时间、完成时间、用时、Token 用量、LLM 速度。用时须写成一行括号拆分：有 Whisper 为 `用时：…（下载用时：…，语音转写用时：…，总结用时：…）`；无 Whisper 为 `用时：…（下载用时：…，总结用时：…）`。**「用时」= 该条各阶段之和**，只计本条实际处理；不得计入等待用户确认、其他条目或整批闲置。**Token baseline 必须在压缩转写稿已经就绪后、开始读取和总结之前 snapshot**：字幕探测、音频下载、等待用户确认和 Whisper 均在 baseline 之前，不计入 Token 增量或 LLM 速度。**Skill 版本**取自本文件 frontmatter 的 `metadata.version`，由脚本写成 `v2026.08.18`。**LLM 速度** = baseline 后的输出 token ÷ **总结阶段 token 归属窗口秒数**（总结 baseline → 最后一次归属用量事件；拿不到事件时间戳时退回 `summary_seconds`），保留 1 位小数，写成 `92.7 tok/s（总结阶段，含工具执行）`。输出不可用或窗口 ≤ 0 时写「不可用」。**「输出」是转写稿就绪后相对 baseline 的模型增量（可含总结阶段的思考/工具），不是总结正文字数，也不是字幕附录**；若输出≈整会话累计，按当前 agent 专页修复后再交付。Claude Code / Codex 多视频必须一条一个独立工作 agent generation / session 和唯一总结 baseline；Cursor CLI 多视频**必须**优先经嵌套 worker 逐条实测（`--finalize-from-result`，见 `runtime_cursor.md`）；仅嵌套 worker 不可用而自动续跑的多条共用一次 generation 时，脚本会把**批次实测值**写进各条字段并标注口径。统计不可用时写「不可用」，不得补零或估算。**Cursor / Claude / Codex 均须用各自 `*_usage.py` 回填统计块（含 Token、LLM 速度与 Skill 版本），禁止手写数字行**；不得跨环境调用脚本。pipeline 的 `download_seconds` / `whisper_seconds` 仍直接用于总用时阶段明细，但不进入 LLM 速度窗口。
 9. 每 2 秒的音频下载/Whisper 进度必须更新同一个终端状态行或可变状态卡；不得反复追加新的助手对话文本，也不得等待百分比阈值。
 10. 推荐顺序：保存正文 → `register`（必带 `--subtitle-file`）→ 回填运行统计 → 核验「## 原文字幕」仍在 → `finalize`（重建 `视频总结.html`，含 B 站 `bili_bridge`），详见 `html_viewer.md`；重建直接覆盖，无需询问。**禁止**在确认无原文的情况下交付。
 
 ## 单条流程
 
-1. 记录运行统计基线（见 `runtime_statistics.md`）。
+1. 运行当前 agent 的统计 `--doctor` 预检；**此时不要 snapshot baseline**（见 `runtime_statistics.md`）。
 2. `summarize_pipeline.py check` → `cached` 则回复路径并结束（cached 文件也须已有「## 原文字幕」，否则当 miss 重跑附原文）。cached 响应现在也会自动确保本地播放服务在运行并返回 `server_running` / `url`，交付时把该 `url` 一并告知；`server_running=false` 时如实说明播放器暂不可用。
-3. `probe`。`ok` 时读压缩转写稿并总结；`no_srt` 时按 `whisper.md` 询问并暂停；`error` 时报告真实错误（含小红书 `hint`）。
-4. 按 `subtitle_summary.md` 生成并保存正文 → `register --subtitle-file …`（必填）→ 回填运行统计 → 核验原文小节 → `finalize`。
-5. 交付时附上 HTML 路径与 `finalize` 返回的 `url`。
+3. `probe`。`ok` 时转写稿已就绪；`no_srt` 时按 `whisper.md` 询问，用户同意后完成 `download-audio` 与 `transcribe`；`error` 时报告真实错误（含小红书 `hint`）。
+4. **转写稿就绪后立即 snapshot 唯一总结 baseline**，再开始读取 `.txt` 和撰写正文。不得在 Whisper 前复用旧 baseline。
+5. 按 `subtitle_summary.md` 生成并保存正文 → `register --subtitle-file …`（必填）→ 回填运行统计 → 核验原文小节 → `finalize`。
+6. 交付时附上 HTML 路径与 `finalize` 返回的 `url`。
 
-进度只报告阶段变更：记录基线、识别平台、获取字幕、读取与总结、保存展示。具体工具日志保持一行且精炼。
+进度只报告阶段变更：统计预检、识别平台、获取字幕/转写、记录总结 baseline、读取与总结、保存展示。具体工具日志保持一行且精炼。
 
 ## 多条流程
 

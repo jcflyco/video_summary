@@ -36,7 +36,7 @@ PY
 
 ## 预检 `--doctor`（所有 Agent 共通，必须，先于 baseline）
 
-三个脚本都支持 `--doctor`：不写任何文件，只报告「当前环境能否解析出模型名与 Token」。**在 snapshot baseline 之前跑一次**，退出码 `0`=ok、`2`=degraded：
+三个脚本都支持 `--doctor`：不写任何文件，只报告「当前环境能否解析出模型名与 Token」。`--doctor` 可在去重/探测前执行；**snapshot baseline 必须等压缩转写稿就绪后再执行**。退出码 `0`=ok、`2`=degraded：
 
 ```bash
 python3 "$SKILL_DIR/scripts/<agent>_usage.py" --doctor
@@ -55,7 +55,7 @@ python3 "$SKILL_DIR/scripts/<agent>_usage.py" --doctor
 
 `DOCTOR=degraded` 时仍可继续跑总结，但要预期对应字段写「不可用」，并在交付时说明；**不得**因此手写数字。
 
-**baseline 写不出即失败**：三个脚本的 `--snapshot-baseline` 在会话不可用时会打印 `error=…baseline_not_written` 并以非零退出，不再静默跳过。看到该错误必须当场处理，否则 `--finalize` 会在最后一步报 `baseline_unreadable`，此时总结已写完、增量已无法追溯。
+**baseline 写不出即失败**：转写稿就绪后、读取正文前执行 `--snapshot-baseline`；三个脚本在会话不可用时会打印 `error=…baseline_not_written` 并以非零退出，不再静默跳过。看到该错误必须当场处理，否则 `--finalize` 会在最后一步报 `baseline_unreadable`，此时总结已写完、增量已无法追溯。不得在字幕探测、等待用户确认、音频下载或 Whisper 之前提前 snapshot；提前建立的 baseline 会把非 LLM 阶段混入速度窗口。
 
 ## 开始与结束（所有 Agent 共通）
 
@@ -65,9 +65,14 @@ python3 "$SKILL_DIR/scripts/<agent>_usage.py" --doctor
 
 ```bash
 date +"START %Y-%m-%d %H:%M:%S (%s)"
-# …仅处理本视频…
+# …字幕探测或音频下载 + Whisper…
+python3 "$SKILL_DIR/scripts/<agent>_usage.py" --snapshot-baseline "$BASELINE"
+date +"SUMMARY_START %Y-%m-%d %H:%M:%S (%s)"
+# …读取压缩转写稿并总结…
 date +"END %Y-%m-%d %H:%M:%S (%s)"
 ```
+
+`START` / `END` 继续描述本视频的处理时间；`SUMMARY_START` 与 baseline 只描述 LLM 总结窗口。等待用户确认不得计入任何阶段，Whisper 用时只进入「语音转写用时」，不进入 Token 或 LLM 速度。
 
 多视频时：每条视频各自一对 START/END、一个唯一 baseline 文件和一个独立 agent generation / session；禁止用整批会话的起止 epoch 或 Token baseline 回填到单条成稿。若多个视频只能共用同一次聚合用量事件（仅 Cursor 回退路径会发生），由脚本把**批次实测值**写进各条字段并标注「本批 N 条共用一次生成，未拆分到单条」/「本批 N 条共用，端到端」；批次值必须带标注，禁止去掉标注冒充单条实测，也禁止手工按比例分摊。
 
@@ -109,7 +114,7 @@ date +"DOWNLOAD_END %s"
 
 ## Token「输出」口径（所有 Agent 共通）
 
-「Token 用量 · 输出」= **相对 baseline 的模型输出增量**（常含思考、工具调用、多轮回复），**不是**总结 Markdown 可见正文字数，也不是脚本追加的「原文字幕 / 中文字幕」。正文字数远小于输出 token 是正常的；若输出≈整段会话累计，或推算出的 LLM 速度明显虚高，按当前 agent 专页修复（Cursor：`--repair-from-ledger` / 等待 hook），不得当正常值交付。
+「Token 用量 · 输出」= **转写稿就绪后相对总结 baseline 的模型输出增量**（可含总结阶段的思考、工具调用、多轮回复），**不是**总结 Markdown 可见正文字数，也不是脚本追加的「原文字幕 / 中文字幕」。下载、Whisper 和等待用户确认发生在 baseline 之前，因此也不进入 Token 增量。正文字数远小于输出 token 是正常的；若输出≈整段会话累计，或推算出的 LLM 速度明显虚高，按当前 agent 专页修复（Cursor：`--repair-from-ledger` / 等待 hook），不得当正常值交付。
 
 ## Skill 版本（所有 Agent 共通，必须）
 
@@ -124,21 +129,21 @@ date +"DOWNLOAD_END %s"
 
 ## LLM 速度（所有 Agent 共通，必须）
 
-**输出 token ÷ token 归属窗口墙钟（秒）**，单位 `tok/s`，后缀「（含工具执行）」。
+**总结 baseline 后的输出 token ÷ 总结阶段 token 归属窗口墙钟（秒）**，单位 `tok/s`，后缀「（总结阶段，含工具执行）」。
 
-分子是**整轮 agent turn 的输出增量**（含思考、工具调用、多轮回复），所以分母必须覆盖同一段时间。早期版本用「总结用时」这一个子阶段当分母，分子分母口径不一致，实测把 92.7 tok/s 报成了 217.5 tok/s——**不要再用 `summary_seconds` 当分母**。
+分子和分母必须从同一个“转写稿已就绪”的 baseline 开始。这样下载、Whisper、模型加载和用户确认等待既不进入分子，也不进入分母；总结过程中发生的工具调用仍保留在窗口内，因此它不是纯解码速度。
 
 | 规则 | 说明 |
 |---|---|
 | 公式 | `LLM 速度 = 输出 token 数 ÷ 归属窗口秒数` |
-| 归属窗口 | 从 **baseline snapshot 时刻**（此前的 token 不在增量里）到**最后一次归属用量事件**的时间戳；Cursor 的 stop hook 在 agent 记录 END 之后才触发，用 END 截断会少算真实生成时间 |
-| 回退 | 拿不到事件时间戳时用该视频自身的 `END − START`；三个脚本都已实现，无需手工传参 |
-| 格式 | 保留 1 位小数 + `（含工具执行）`，如 `92.7 tok/s（含工具执行）` |
-| 批次共用（仅 Cursor 回退路径） | 多条共用一次生成时写**批次实测**速度，标注并入同一括号：`119.5 tok/s（本批 3 条共用，端到端，含工具执行）`；分母 = 最早 baseline snapshot → 最后归属事件 |
+| 归属窗口 | 从**转写稿就绪后的总结 baseline**到**最后一次归属用量事件**；Cursor 的 stop hook 在 agent 记录 END 之后才触发，用 END 截断会少算真实生成时间 |
+| 回退 | 拿不到事件时间戳时使用实测 `summary_seconds`；只有旧记录连总结用时也没有时才退回 `END − START` |
+| 格式 | 保留 1 位小数 + `（总结阶段，含工具执行）`，如 `92.7 tok/s（总结阶段，含工具执行）` |
+| 批次共用（仅 Cursor 回退路径） | 多条共用一次生成时写**批次实测**速度并保留「本批」标注；窗口只覆盖该批实际总结生成，不含前置下载/Whisper |
 | 不可用 | 输出 token 不可用、或窗口秒数 ≤ 0 时写「不可用」（批次事件未落地时暂为「不可用（…待回填）」，stop hook 后自动升级） |
 | 写入位置 | 紧接「Token 用量」之后单独一行 |
 
-窗口内包含工具执行时间，所以这是**端到端 agent 吞吐**，不是纯解码速度——后缀就是在说明这件事，不要删。
+窗口内包含总结阶段的工具执行时间，所以这是**总结阶段 agent 吞吐**，不是纯解码速度——后缀就是在说明这件事，不要删。音频下载、Whisper 和用户确认等待明确排除。
 
 Cursor / Claude / Codex 均由各自 `*_usage.py --finalize`（Cursor 另有 `--ensure-stats`）自动计算写入；禁止手写 Token / LLM 速度数字。
 
@@ -159,7 +164,7 @@ Cursor / Claude / Codex 均由各自 `*_usage.py --finalize`（Cursor 另有 `--
 - 完成时间：YYYY-MM-DD HH:MM:SS
 - 用时：…（下载用时：…，总结用时：…）
 - Token 用量：输入（非缓存）… · 输出 … · 缓存读 … · 缓存写 … · 合计 …
-- LLM 速度：… tok/s（含工具执行）
+- LLM 速度：… tok/s（总结阶段，含工具执行）
 ```
 
 字幕路径（无须语音转写）示例：
@@ -175,23 +180,23 @@ Cursor / Claude / Codex 均由各自 `*_usage.py --finalize`（Cursor 另有 `--
 - 完成时间：2026-07-05 14:57:41
 - 用时：5 分 10 秒（下载用时：18 秒，总结用时：4 分 52 秒）
 - Token 用量：输入（非缓存）1,234 · 输出 8,765 · 缓存读 456,789 · 缓存写 23,456 · 合计 466,788
-- LLM 速度：28.1 tok/s（含工具执行）
+- LLM 速度：28.1 tok/s（总结阶段，含工具执行）
 ```
 
-（上例：baseline snapshot 到最后一次用量事件共 312 秒，8765 ÷ 312 ≈ 28.1；注意分母**不是**总结用时 292 秒）
+（上例：转写稿就绪后的 baseline 到最后一次用量事件共 312 秒，8765 ÷ 312 ≈ 28.1；若事件时间戳不可用才回退到总结用时 292 秒）
 
 Whisper 路径示例（用时 = 4 + 297 + 39 秒）：
 
 ```markdown
 - 用时：5 分 40 秒（下载用时：4 秒，语音转写用时：4 分 57 秒，总结用时：39 秒）
-- LLM 速度：… tok/s（含工具执行）
+- LLM 速度：… tok/s（总结阶段，含工具执行）
 ```
 
 Cursor 批次回退示例（多条共用一次生成，脚本自动写批次实测值，禁止手写）：
 
 ```markdown
 - Token 用量：输入（非缓存）2,100 · 输出 32,975 · 缓存读 50,000 · 缓存写 1,000 · 合计 35,075（本批 3 条共用一次生成，未拆分到单条）
-- LLM 速度：119.5 tok/s（本批 3 条共用，端到端，含工具执行）
+- LLM 速度：119.5 tok/s（本批 3 条共用，端到端，总结阶段，含工具执行）
 ```
 
 多视频每条成稿仍只写**该视频**的开始/完成/用时；另增一行「本批 N 个视频，成功 X / 失败 Y，不含并行子任务」（批次说明，不替代单条用时）。对话交付时可另报一次整批墙钟，但不得写进单条「用时」。

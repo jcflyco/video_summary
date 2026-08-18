@@ -73,7 +73,7 @@ $PIPE batch-set-consent --scratchpad "$SCRATCH" --consent yes --all
 协调者循环：
 
 1. `batch-status` 看 `actions`
-2. 对每个 `summarize`：派独立工作 agent（一条一个 generation / session）总结并用该条唯一 baseline 回填统计；开始时 `batch-mark-summary --status running`；完成后 `register` + 当前环境 `*_usage.py --finalize` + `batch-mark-summary --status done --markdown PATH`
+2. 对每个 `summarize`：转写稿已就绪后派独立工作 agent（一条一个 generation / session）；工作 agent 先 snapshot 该条唯一总结 baseline，再读取转写稿和总结。开始时 `batch-mark-summary --status running`；完成后 `register` + 当前环境 `*_usage.py --finalize` + `batch-mark-summary --status done --markdown PATH`
 3. 若有 `download_audio`：**立刻**在另一终端/后台执行  
    `$PIPE download-audio --batch --scratchpad "$SCRATCH" --url "..."`  
    不要等当前 summarize 结束（B5）

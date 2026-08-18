@@ -60,7 +60,7 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" transcribe \
 # 多视频批次加 --batch（会拒绝并行第二路 Whisper）
 ```
 
-其中 `$AUDIO_FILE` / `$VIDEO_ID` 来自 `download-audio`（或先前 `probe` 的 `no_srt`）。原语言未知或不可靠时省略 `--language`。成功后直接读返回的 `transcript_file`（已 compact），再按 `subtitle_summary.md` 总结。成稿统一标注「语音转写（Whisper large-v3-turbo）」。
+其中 `$AUDIO_FILE` / `$VIDEO_ID` 来自 `download-audio`（或先前 `probe` 的 `no_srt`）。原语言未知或不可靠时省略 `--language`。成功后先确认返回的 `transcript_file`（已 compact）存在；此时 Whisper 阶段结束。**立即用当前 agent 的 usage 脚本 snapshot 总结 baseline，再开始读取转写稿**，确保音频下载、Whisper 模型加载/转写和用户确认等待都不进入 Token 增量或 LLM 速度。随后按 `subtitle_summary.md` 总结，成稿统一标注「语音转写（Whisper large-v3-turbo）」。
 
 **B5：** 多视频时，下一条 `download-audio` 可与当前总结或当前 Whisper 重叠；全批仍最多 1 路 `transcribe`（见 `multi_video.md`）。
 

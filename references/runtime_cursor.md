@@ -8,7 +8,7 @@
 
 ## Token 口径（必读）
 
-「Token 用量 · 输出」= **本条处理相对 baseline 的模型输出增量**（含思考 / 工具调用 / 多轮回复），**不是**总结 Markdown 正文字数，也不是「原文字幕 / 中文字幕」附录（字幕由 `register` 脚本写入）。
+「Token 用量 · 输出」= **转写稿就绪后，本条总结相对 baseline 的模型输出增量**（含总结阶段的思考 / 工具调用 / 多轮回复），**不是**总结 Markdown 正文字数，也不是「原文字幕 / 中文字幕」附录。音频下载、Whisper 和用户确认等待发生在 baseline 之前，不计入 Token 或 LLM 速度。
 
 因此：输出 token 常大于可见总结；但若接近整段会话累计、或 LLM 速度高得离谱（例如数百 tok/s 且总结仅两千字），视为回填错误，必须按下节修复，禁止当正常值交付。
 
@@ -30,7 +30,7 @@ Cursor 的 `stop` / `afterAgentResponse` **只对用户直接对话的那个 con
 **所以在 Cursor CLI 下处理多个视频时，不得派并行子 agent 做总结。** 多视频**必须**先走下节「嵌套 worker」为每条拿到**单条实测** Token / LLM 速度；只有嵌套 worker 确实不可用（`cursor-agent` 缺失、worker 失败、usage 解析不到）时才按以下规则回退：
 
 1. 在用户发起批量任务的当前 turn 内按输入顺序逐条串行；一条完成后立即处理下一条，直到整批完成。**不得结束本轮等待用户回复「继续」**，也不得为自动续跑再次征求许可。唯一需要暂停的仍是无字幕音频的 Whisper 明示同意等硬门禁。
-2. 整批只有一次 generation 事件，单条数字无法拆分，但批次本身是实测的：聚合事件落地后，脚本会把**批次实测值直接写进各条字段**并标注口径——Token 行如 `输入（非缓存）2,100 · 输出 32,975 · … · 合计 35,075（本批 3 条共用一次生成，未拆分到单条）`，速度行如 `119.5 tok/s（本批 3 条共用，端到端，含工具执行）`（窗口 = 最早 baseline → 最后归属事件，批次端到端吞吐）。事件未落地前（turn 还没结束）暂为「不可用（本批 N 条共用一次生成，未拆分到单条；批次实测待 stop hook 上报后自动回填）」，本轮结束后由 stop hook / 下一轮 `--flush-pending` 自动升级为实测值。这是回退路径的预期取舍，不因此中断任务。
+2. 整批只有一次 generation 事件，单条数字无法拆分，但批次本身是实测的：聚合事件落地后，脚本会把**批次实测值直接写进各条字段**并标注口径；速度窗口从该批最早的总结 baseline 到最后归属事件，写明「本批 N 条共用，总结阶段，含工具执行」。事件未落地前暂为「不可用（…待回填）」。任何前置下载、Whisper 或确认等待都必须发生在 baseline 之前。
 3. 每条仍单独记录真实阶段用时并使用唯一 baseline / Markdown pending job；stop hook 发现同一 conversation 在本 turn 有多个 pending job 时，会自动把它们全部按批次口径结算，避免较早条目永久 pending。
 4. 任何情况下都**不得**去掉「本批」标注把批次值冒充单条用量，也不得手工按比例分摊。
 
@@ -54,7 +54,7 @@ python3 "$SKILL_DIR/scripts/cursor_usage.py" --finalize-from-result "$CAP" \
   --download-seconds "$DOWNLOAD_SECS" --summary-seconds "$SUMMARY_SECS"
 ```
 
-- usage 与速度窗口都来自该次生成自身：LLM 速度分母 = `duration_api_ms`（worker 全程，含其工具执行）。单条统计彼此独立，**不需要** baseline / pending job / stop hook。
+- usage 与速度窗口都来自该次总结生成自身：LLM 速度分母 = `duration_api_ms`（worker 总结阶段全程，含其工具执行）。worker 只能在转写稿就绪后启动，因此不包含下载或 Whisper；单条统计彼此独立，**不需要** baseline / pending job / stop hook。
 - `--model-name` 写 worker 实际使用的模型（即传给 `--model` 的值）；不确定时省略并接受「不可用」，禁止把协调者自己的模型冒充 worker 模型。
 - worker 失败、`--extract-result` / `--finalize-from-result` 非零退出时：该条回退到协调者自己总结 + 原 baseline/pending 路径，该批共用生成的条目按批次实测值结算（上节）。
 - **单视频（整轮只此一条）无需嵌套**：本轮 stop hook 事件天然独立，维持原 `--finalize` 流程。
@@ -64,9 +64,9 @@ python3 "$SKILL_DIR/scripts/cursor_usage.py" --finalize-from-result "$CAP" \
 
 `$SKILL_DIR` = 本 skill 根目录（含 `SKILL.md` 的目录）。
 
-Token baseline 必须在**当前视频的独立工作 agent generation**开始时 snapshot；多视频不得共用 baseline 文件。墙钟 `START` / `END` 与阶段秒数也必须按当前视频记录（见 `runtime_statistics.md`）。
+`--doctor` / `--ensure-hook` 可在任务开始时执行；Token baseline 必须在**当前视频转写稿就绪后、开始总结前** snapshot。多视频不得共用 baseline 文件。墙钟 `START` / `END` 与阶段秒数仍按当前视频记录（见 `runtime_statistics.md`）。
 
-对该视频开始实质性处理时：
+任务开始时先做预检和 hook 维护，不要 snapshot：
 
 ```bash
 python3 "$SKILL_DIR/scripts/cursor_usage.py" --doctor          # 预检；HOOK_INSTALLED 为空必须先 --ensure-hook
@@ -74,9 +74,16 @@ python3 "$SKILL_DIR/scripts/cursor_usage.py" --ensure-hook --skill-dir "$SKILL_D
 # --ensure-hook 必须同时安装 video_summary-cursor_usage.py 与 runtime_stats_lib.py
 # 到 ~/.cursor/hooks/；缺 lib 时 stop hook 会 ModuleNotFoundError，Token 永久「不可用」。
 python3 "$SKILL_DIR/scripts/cursor_usage.py" --flush-pending
-python3 "$SKILL_DIR/scripts/cursor_usage.py" --snapshot-baseline "$BASELINE"   # 每条唯一
-date +"START %Y-%m-%d %H:%M:%S (%s)"   # 本视频 START
 ```
+
+字幕探测或 Whisper 完成、`transcript_file` 已就绪后：
+
+```bash
+python3 "$SKILL_DIR/scripts/cursor_usage.py" --snapshot-baseline "$BASELINE"   # 每条唯一总结 baseline
+date +"SUMMARY_START %Y-%m-%d %H:%M:%S (%s)"
+```
+
+本视频整体 `START` 仍在下载/字幕阶段记录，用于开始时间与阶段明细；不得提前 snapshot 把下载、Whisper 或用户等待混入速度窗口。
 
 该视频 Markdown **正文写完并已 `register --subtitle-file` 附上原文**后（阶段秒数必传；`START`/`END` 为本视频起止）：
 
@@ -138,7 +145,7 @@ python3 "$SKILL_DIR/scripts/cursor_usage.py" --repair-from-ledger \
 - **不得**手写或编辑 Cursor 写入的「运行统计」块（含 Token / LLM 速度行）；只能通过上述脚本回填。
 - Cursor CLI 多视频回退串行时在同一 conversation / generation 内自动续跑；每条用唯一 baseline 文件和 pending job。脚本检测同 turn 多条后统一按批次口径结算（批次实测值 + 「本批 N 条共用」标注），禁止把 stop-hook 聚合事件当单条增量回填多次。
 - 脚本写入的「用时」= 传入的各阶段秒数之和（有 Whisper 含转写；无则不含）；不要指望用整批 `END-START` 当总用时。
-- 脚本自动写「LLM 速度」= 输出 token ÷ **token 归属窗口**（baseline snapshot → 最后一次归属用量事件），1 位小数 + `tok/s（含工具执行）`；**分母不是 `--summary-seconds`**，见 `runtime_statistics.md`。输出不可用或窗口 ≤ 0 时写「不可用」。
+- 脚本自动写「LLM 速度」= 总结 baseline 后的输出 token ÷ **总结阶段 token 归属窗口**，1 位小数 + `tok/s（总结阶段，含工具执行）`；事件时间戳不可用时回退 `--summary-seconds`。输出不可用或窗口 ≤ 0 时写「不可用」。
 - 脚本自动写「Skill 版本」= `SKILL.md` frontmatter 的 `metadata.version`。改完版本号要重跑 `--ensure-hook`，否则 hook 侧回填的还是旧版本（`--doctor` 的 `SKILL_VERSION=` 可核对）。
 - `--start-epoch` / `--end-epoch` 必须是该视频自身处理窗口，禁止传入整批会话起止。
 - 未走 Whisper 时省略 `--whisper-seconds`。
