@@ -45,6 +45,16 @@ $PIPE finalize --dir .
 禁止：手写 `yt-dlp --list-subs`、直接读 `.srt/.vtt`、绕过 pipeline 自造音频下载逻辑。  
 `fetch_video.py` / `fetch_audio.py` / `transcribe_whisper.py` 仅由 pipeline 或本文件列出的等价调用使用。
 
+## 频道 / 播放列表（非单视频链接）
+
+```bash
+$PIPE list-videos --url "https://www.youtube.com/@SomeChannel" --limit 10
+```
+
+返回该频道最新（播放列表则按列表顺序）N 条的 `title / duration / url`（默认 10 条）。
+向用户以表格展示（标题、时长、链接）供挑选，**不**生成 Markdown、不进索引；用户选定后再按单条/多条流程处理。
+`check` / `probe` 遇到此类链接会直接返回 `status=channel`、`agent_action=list_videos`。
+
 ## 多条 + B5 流水线
 
 ```bash

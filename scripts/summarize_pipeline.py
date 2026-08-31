@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Any
@@ -127,10 +128,108 @@ def ensure_local_server(work_dir: Path) -> dict[str, Any]:
         return {"server_running": False, "server_error": str(exc)}
 
 
+def youtube_list_url(url: str) -> str | None:
+    """YouTube 频道主页/播放列表等非单视频链接 → 可 flat-playlist 的列表 URL；否则 None。"""
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or "").lower().removeprefix("www.").removeprefix("m.")
+    if host != "youtube.com":
+        return None
+    parts = [p for p in parsed.path.split("/") if p]
+    if not parts:
+        return None
+    if parts[0] == "playlist" and "list=" in (parsed.query or ""):
+        return url
+    head = parts[0]
+    if head.startswith("@"):
+        prefix_len = 1
+    elif head in {"channel", "c", "user"} and len(parts) >= 2:
+        prefix_len = 2
+    else:
+        return None
+    base = "https://www.youtube.com/" + "/".join(parts[:prefix_len])
+    tab = parts[prefix_len] if len(parts) > prefix_len else ""
+    if tab in {"videos", "shorts", "streams"}:
+        return f"{base}/{tab}"
+    if tab in {"", "featured"}:
+        return f"{base}/videos"
+    return None
+
+
+def channel_payload(list_url: str) -> dict[str, Any]:
+    return {
+        "status": "channel",
+        "list_url": list_url,
+        "agent_action": "list_videos",
+        "message": "频道/播放列表链接（非单视频）：用 list-videos 拉取最新视频列表反馈给用户挑选",
+    }
+
+
+def cmd_list_videos(args: argparse.Namespace) -> None:
+    list_url = youtube_list_url(args.url) or args.url
+    limit = max(1, args.limit)
+    cmd = [
+        "yt-dlp",
+        "--no-warnings",
+        "--skip-download",
+        "--flat-playlist",
+        "--playlist-end",
+        str(limit),
+        "--dump-single-json",
+        list_url,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        emit(
+            {
+                "status": "error",
+                "error": (proc.stderr or proc.stdout).strip()[-2000:] or "yt-dlp failed",
+            },
+            1,
+        )
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        emit({"status": "error", "error": "failed to parse yt-dlp JSON"}, 1)
+
+    from fetch_video import format_duration  # noqa: E402
+
+    videos = []
+    for entry in (data.get("entries") or [])[:limit]:
+        if not isinstance(entry, dict):
+            continue
+        video_id = entry.get("id") or ""
+        video_url = entry.get("url") or entry.get("webpage_url") or (
+            f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+        )
+        duration = entry.get("duration")
+        videos.append(
+            {
+                "title": entry.get("title") or "",
+                "duration_seconds": duration,
+                "duration": format_duration(duration) if duration else "未知",
+                "url": video_url,
+            }
+        )
+    emit(
+        {
+            "status": "ok",
+            "source": data.get("channel") or data.get("uploader") or data.get("title") or "",
+            "list_url": list_url,
+            "count": len(videos),
+            "videos": videos,
+            "agent_action": "present_list",
+            "message": "向用户展示列表（标题/时长/链接），等用户挑选后再走单条/多条流程",
+        }
+    )
+
+
 def cmd_check(args: argparse.Namespace) -> None:
     work_dir = Path(args.dir).resolve()
     ref = parse_media_ref(args.url)
     if not ref:
+        list_url = youtube_list_url(args.url)
+        if list_url:
+            emit(channel_payload(list_url))
         emit({"status": "error", "error": "unsupported or unparseable url"}, 1)
     hit = lookup(work_dir, platform=ref["platform"], video_id=ref["video_id"])
     if hit and not args.force:
@@ -163,6 +262,10 @@ def cmd_probe(args: argparse.Namespace) -> None:
     scratchpad.mkdir(parents=True, exist_ok=True)
 
     ref = parse_media_ref(args.url)
+    if not ref:
+        list_url = youtube_list_url(args.url)
+        if list_url:
+            emit(channel_payload(list_url))
     if ref and not args.force:
         hit = lookup(work_dir, platform=ref["platform"], video_id=ref["video_id"])
         if hit:
@@ -911,6 +1014,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--url", required=True)
     c.add_argument("--force", action="store_true")
 
+    c = sub.add_parser("list-videos", help="List latest videos of a channel/playlist URL")
+    c.add_argument("--url", required=True)
+    c.add_argument("--limit", type=int, default=10)
+
     c = sub.add_parser("probe", help="Index check + fetch_video")
     add_dir(c)
     add_scratch(c)
@@ -991,6 +1098,7 @@ def main() -> None:
     args = parser.parse_args()
     dispatch = {
         "check": cmd_check,
+        "list-videos": cmd_list_videos,
         "probe": cmd_probe,
         "download-audio": cmd_download_audio,
         "transcribe": cmd_transcribe,

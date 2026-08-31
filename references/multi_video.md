@@ -49,12 +49,13 @@ $PIPE batch-set-consent --scratchpad "$SCRATCH" --consent yes --all
 |---|---|---|
 | Claude Code / Codex | 派工作 agent **并行**总结，每个 agent 只处理一个视频 | 子 agent 的用量能独立采样 |
 | **Cursor CLI** | **不得派子 agent；必须优先用嵌套 `cursor-agent` worker 逐条生成正文（单条实测统计），worker 不可用才在当前 turn 内串行并自动跑完整批** | Cursor 不记录子 agent token；嵌套 worker 的 `result` 事件带真实 usage，无需用户逐条输入「继续」 |
+| **OpenCode** | **不得派子 agent；在当前会话内按输入顺序串行，每条转写稿就绪后各自 snapshot baseline，写完即 finalize 再做下一条** | 子 agent 用量落在独立子会话、worker 内无法归属；同一会话串行时每条 baseline 累计差即**单条实测**，无需批次标注（见 `runtime_opencode.md`） |
 
-Cursor CLI 下完成一条后直接开始下一条，不结束回复、不等待用户说「继续」；唯一暂停点是 Whisper 明示同意等硬门禁。具体统计口径见 `runtime_cursor.md` 的「子 agent 拿不到 Token」一节。
+Cursor CLI / OpenCode 下完成一条后直接开始下一条，不结束回复、不等待用户说「继续」；唯一暂停点是 Whisper 明示同意等硬门禁。Cursor 统计口径见 `runtime_cursor.md` 的「子 agent 拿不到 Token」一节；OpenCode 见 `runtime_opencode.md` 的「多视频」一节。
 
-工作 agent（或 Cursor 下的串行处理者）还须读取 `runtime_statistics.md` 与自身运行环境专页，在该条 `transcript_file` 已就绪后使用自己的会话建立唯一总结 baseline（推荐 `$SCRATCH/<video_id>.<agent>.baseline.json`），再开始读取与总结。
+工作 agent（或 Cursor / OpenCode 下的串行处理者）还须读取 `runtime_statistics.md` 与自身运行环境专页，在该条 `transcript_file` 已就绪后使用自己的会话建立唯一总结 baseline（推荐 `$SCRATCH/<video_id>.<agent>.baseline.json`），再开始读取与总结。
 
-Claude Code / Codex **禁止让一个工作 agent generation 同时总结两条视频**。Cursor CLI 回退串行是例外：允许当前 generation 串行处理整批，该批每条的 Token / LLM 速度由脚本写入**批次实测值**并标注「本批 N 条共用」（stop hook 落地前暂为「不可用（…待回填）」），不得去掉标注把批次值冒充单条用量。
+Claude Code / Codex **禁止让一个工作 agent generation 同时总结两条视频**。Cursor CLI 回退串行是例外：允许当前 generation 串行处理整批，该批每条的 Token / LLM 速度由脚本写入**批次实测值**并标注「本批 N 条共用」（stop hook 落地前暂为「不可用（…待回填）」），不得去掉标注把批次值冒充单条用量。OpenCode 串行也是例外，但每条各自 baseline、逐条 finalize，写入的是**单条实测**、不带批次标注。
 
 ```bash
 $PIPE batch-mark-summary --scratchpad "$SCRATCH" --video-id ID --status running
