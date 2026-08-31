@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch media metadata, pick original-language subtitles, download and compact.
+"""Fetch media metadata, pick subtitles (prefer original language, else any), download and compact.
 
 Supports: YouTube, Bilibili, Xiaohongshu, X (Twitter), Apple Podcasts, Xiaoyuzhou FM,
 Longbridge lives.
@@ -121,19 +121,21 @@ def split_ai_tracks(
     return manual_out, auto_out
 
 
-def pick_manual(subtitles: dict[str, list], target: str) -> str | None:
+def pick_manual(subtitles: dict[str, list], target: str, raw_lang: str = "") -> str | None:
     codes = [c for c in subtitles if not c.startswith("ai-") and c not in SKIP_SUB_LANGS]
     matching = [c for c in codes if matches_lang(c, target)]
     if not matching:
         return None
-    for pref in (f"{target}-orig", target, f"{target}-HK", f"{target}-Hans", f"{target}-Hant"):
+    for pref in _variant_prefs(target, raw_lang):
         for code in matching:
             if code == pref or code.startswith(f"{pref}-"):
                 return code
     return matching[0]
 
 
-def pick_auto(automatic: dict[str, list], target: str, platform: str) -> str | None:
+def pick_auto(
+    automatic: dict[str, list], target: str, platform: str, raw_lang: str = ""
+) -> str | None:
     codes = [c for c in automatic if c not in SKIP_SUB_LANGS]
     if platform == "bilibili":
         for code in codes:
@@ -145,14 +147,87 @@ def pick_auto(automatic: dict[str, list], target: str, platform: str) -> str | N
     matching = [c for c in codes if matches_lang(c, target)]
     if not matching:
         return None
-    for pref in (f"{target}-orig", target):
+    for pref in _variant_prefs(target, raw_lang):
         for code in matching:
-            if code == pref:
+            if code == pref or code.startswith(f"{pref}-") or code == f"ai-{pref}":
                 return code
     orig = [c for c in matching if c.endswith("-orig")]
     if orig:
         return orig[0]
     return matching[0]
+
+
+def _variant_prefs(target: str, raw_lang: str = "") -> tuple[str, ...]:
+    """Prefer exact metadata variant (e.g. zh-Hant) before bare zh / other scripts."""
+    raw = (raw_lang or "").strip()
+    out: list[str] = [f"{target}-orig"]
+    if raw and raw != target:
+        out.append(raw)
+    out.append(target)
+    for v in (
+        f"{target}-HK",
+        f"{target}-Hans",
+        f"{target}-Hant",
+        f"{target}-TW",
+        f"{target}-CN",
+    ):
+        if v not in out:
+            out.append(v)
+    return tuple(out)
+
+
+# Prefer source-like / common tracks when falling back across languages.
+# Avoid picking an obscure YouTube "xx-from-en" machine translation as the primary track.
+ANY_LANG_PREFS = (
+    "en-orig",
+    "zh-orig",
+    "en",
+    "en-US",
+    "en-GB",
+    "zh-Hans",
+    "zh-CN",
+    "zh",
+    "zh-Hant",
+    "zh-TW",
+    "zh-HK",
+    "ja",
+    "ko",
+    "yue",
+)
+
+
+def _rank_any_codes(codes: list[str]) -> str | None:
+    if not codes:
+        return None
+    for pref in ANY_LANG_PREFS:
+        for code in codes:
+            if code == pref or code == f"ai-{pref}":
+                return code
+    orig = [c for c in codes if c.endswith("-orig")]
+    if orig:
+        return sorted(orig)[0]
+    # Prefer short / non-translated codes (e.g. en-US over zh-Hant-en-US).
+    simple = [c for c in codes if c.count("-") <= 1 and not c.startswith("ai-")]
+    if simple:
+        return sorted(simple)[0]
+    return sorted(codes)[0]
+
+
+def pick_any_manual(subtitles: dict[str, list]) -> str | None:
+    codes = [c for c in subtitles if not c.startswith("ai-") and c not in SKIP_SUB_LANGS]
+    return _rank_any_codes(codes)
+
+
+def pick_any_auto(automatic: dict[str, list], platform: str) -> str | None:
+    codes = [c for c in automatic if c not in SKIP_SUB_LANGS]
+    if not codes:
+        return None
+    if platform == "bilibili":
+        ai = [c for c in codes if c.startswith("ai-")]
+        ranked = _rank_any_codes(ai)
+        if ranked:
+            return ranked
+    return _rank_any_codes(codes)
 
 
 ZH_PREFS = ("zh-Hans", "zh-CN", "zh", "zh-Hant", "zh-TW", "zh-HK")
@@ -183,7 +258,12 @@ def select_zh_track(info: dict) -> tuple[str, str] | None:
 
 
 def select_subtitle(info: dict, platform: str) -> tuple[str, str, str, bool] | None:
-    """Return (lang_code, subtitle_type, reason, is_auto)."""
+    """Return (lang_code, subtitle_type, reason, is_auto).
+
+    Prefer original-language tracks, then fall back to any available manual/auto track.
+    Language is not a hard gate: missing original-lang captions no longer forces no_srt
+    when another language (or a machine-translated auto track) exists.
+    """
     raw_lang = (info.get("language") or "").strip()
     target = base_lang(raw_lang) if raw_lang else infer_language(info.get("title") or "", platform)
 
@@ -192,16 +272,34 @@ def select_subtitle(info: dict, platform: str) -> tuple[str, str, str, bool] | N
         usable_tracks(info.get("automatic_captions")),
     )
 
-    picked = pick_manual(manual, target)
+    picked = pick_manual(manual, target, raw_lang)
     if picked:
         return picked, "manual", f"人工字幕，原语言 {target}，代码 {picked}", False
 
-    picked = pick_auto(auto, target, platform)
+    picked = pick_auto(auto, target, platform, raw_lang)
     if picked:
         return (
             picked,
             "auto",
             f"无人工字幕，选用自动字幕 {picked}（原语言 {target}）",
+            True,
+        )
+
+    picked = pick_any_manual(manual)
+    if picked:
+        return (
+            picked,
+            "manual",
+            f"人工字幕（非原语言 {target}），代码 {picked}",
+            False,
+        )
+
+    picked = pick_any_auto(auto, platform)
+    if picked:
+        return (
+            picked,
+            "auto",
+            f"自动字幕（非原语言 {target}），代码 {picked}",
             True,
         )
     return None
@@ -282,21 +380,36 @@ def list_subs(url: str, browser: str | None) -> tuple[dict[str, list], dict[str,
 
 
 def enrich_subtitles(info: dict, url: str, browser: str | None) -> str | None:
+    """Merge dump-json tracks with list-subs when needed.
+
+    YouTube dump-json often returns a manual track (or empty auto) while list-subs
+    still lists ASR / translated automatic captions. Prefer dump formats, then fill
+    gaps from list-subs so language fallback can see the full catalog.
+    """
     manual, auto = split_ai_tracks(
         usable_tracks(info.get("subtitles")),
         usable_tracks(info.get("automatic_captions")),
     )
-    if manual or auto:
-        info["subtitles"] = manual
-        info["automatic_captions"] = auto
-        return "dump"
+    source: str | None = "dump" if (manual or auto) else None
 
-    listed_manual, listed_auto = list_subs(url, browser)
-    listed_manual, listed_auto = split_ai_tracks(listed_manual, listed_auto)
-    info["subtitles"] = listed_manual
-    info["automatic_captions"] = listed_auto
-    if listed_manual or listed_auto:
-        return "list-subs"
+    # Always supplement when auto is missing (even if manual exists).
+    if not auto:
+        listed_manual, listed_auto = list_subs(url, browser)
+        listed_manual, listed_auto = split_ai_tracks(listed_manual, listed_auto)
+        if listed_manual or listed_auto:
+            for code, formats in listed_manual.items():
+                manual.setdefault(code, formats)
+            for code, formats in listed_auto.items():
+                auto.setdefault(code, formats)
+            if source == "dump":
+                source = "dump+list-subs"
+            else:
+                source = "list-subs"
+
+    info["subtitles"] = manual
+    info["automatic_captions"] = auto
+    if manual or auto:
+        return source
     return None
 
 
@@ -1011,6 +1124,7 @@ def fetch_ytdlp(
     scratchpad.mkdir(parents=True, exist_ok=True)
 
     info_json: Path | None = None
+    # Only pure dump has real timedtext URLs; dump+list-subs may include stubs.
     if sub_source == "dump":
         info_json = scratchpad / f"{video_id}.info.json"
         info_json.write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")

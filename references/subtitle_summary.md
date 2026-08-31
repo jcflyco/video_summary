@@ -12,16 +12,16 @@ python3 "$SKILL_DIR/scripts/summarize_pipeline.py" probe \
   --dir . --scratchpad "$SCRATCH" --url "URL"
 ```
 
-`check` / `probe` 查 `output/.index.json`（A3）；`cached` 则复用已有 Markdown。`probe` 内部调用 `fetch_video.py`（元信息、原语言、Cookie 回退、人工字幕优先、原文+中文轨下载、自动字幕去重、压缩）；禁止手写 `yt-dlp --list-subs`、`--print` 或直接读取 `.srt/.vtt`。JSON 核心字段：`status`、`agent_action`、`title`、`uploader`、`duration_string`、`upload_date`、`language`、`video_id`、`platform`、`subtitle_type`、`subtitle_lang`、`transcript_file`、`subtitle_file`、`zh_subtitle_file`、`download_seconds`、`webpage_url`；`no_srt` 时可能含 `audio_url`、`hint`。
+`check` / `probe` 查 `output/.index.json`（A3）；`cached` 则复用已有 Markdown。`probe` 内部调用 `fetch_video.py`（元信息、字幕选型、Cookie 回退、人工优先、原文+中文轨下载、自动字幕去重、压缩）；禁止手写 `yt-dlp --list-subs`、`--print` 或直接读取 `.srt/.vtt`。JSON 核心字段：`status`、`agent_action`、`title`、`uploader`、`duration_string`、`upload_date`、`language`、`video_id`、`platform`、`subtitle_type`、`subtitle_lang`、`transcript_file`、`subtitle_file`、`zh_subtitle_file`、`download_seconds`、`webpage_url`；`no_srt` 时可能含 `audio_url`、`hint`。
 
 - `ok`：只读取 `transcript_file` 的 `.txt`；过大时分段读取至完整。记住 `subtitle_file` / `zh_subtitle_file` 供 `register` 附 SRT。
 - `no_srt`：转入 `whisper.md`，先等待用户同意（小红书 / X / Apple Podcasts / 小宇宙常见）。
 - `error`：如实报告错误与 `hint`（若有），不把获取失败误判为无字幕。
 - `cached`：回复已有路径，除非用户要求重跑（`--force`）；重跑必须另存，绝不覆盖。cached 响应会自动拉起本地播放服务并附 `server_running` / `url`，交付时把 `url` 一并告知。
 
-原文字幕选择固定为：原语言人工字幕 > 原语言自动字幕 > 无字幕；忽略 B 站 `danmaku`。自动字幕成稿只写「自动生成」。
+原文字幕选择：原语言人工 > 原语言自动 > 任意语言人工 > 任意语言自动 > 无字幕；忽略 B 站 `danmaku`。语言不是硬门禁——有非原语言轨时直接下载，不因语言不匹配进入 Whisper。自动字幕成稿只写「自动生成」。
 
-非中文原视频时，`fetch_video.py` 还会尝试下载平台中文对照轨（人工中文 > 平台机翻/AI 中文，偏好 `zh-Hans` / `zh-CN` / `zh` 等）；成功时返回 `zh_subtitle_file`、`zh_subtitle_lang`、`zh_subtitle_type`。
+非中文主轨时，`fetch_video.py` 还会尝试下载平台中文对照轨（人工中文 > 平台机翻/AI 中文，偏好 `zh-Hans` / `zh-CN` / `zh` 等）；成功时返回 `zh_subtitle_file`、`zh_subtitle_lang`、`zh_subtitle_type`。
 
 平台与 ID（索引键 `platform:video_id`）：
 

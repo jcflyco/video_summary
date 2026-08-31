@@ -1,8 +1,8 @@
 ---
 name: video-summary
-description: 给定一个或多个 YouTube / Bilibili / 小红书 / X（Twitter）/ Apple Podcasts / 小宇宙 / 长桥直播（Longbridge lives）链接，优先下载原语言字幕并生成带时间戳的中文总结、保存为 Markdown；无字幕时先征得用户同意，再下载音频并以本地 whisper-large-v3-turbo 转写（macOS Apple Silicon 用 MLX，其他平台用 faster-whisper）。当用户要求总结、摘要、讲解或查看上述平台视频/播客时使用。
+description: 给定一个或多个 YouTube / Bilibili / 小红书 / X（Twitter）/ Apple Podcasts / 小宇宙 / 长桥直播（Longbridge lives）链接，优先下载字幕（原语言优先，否则任意可用语言）并生成带时间戳的中文总结、保存为 Markdown；无字幕时先征得用户同意，再下载音频并以本地 whisper-large-v3-turbo 转写（macOS Apple Silicon 用 MLX，其他平台用 faster-whisper）。当用户要求总结、摘要、讲解或查看上述平台视频/播客时使用。
 metadata:
-  version: "2026.08.31"
+  version: "2026.09.01"
 ---
 
 # video_summary — 视频字幕总结
@@ -43,7 +43,7 @@ metadata:
 | 情况 | 必须读取 |
 |---|---|
 | 所有条目 | `references/pipeline.md`、`references/subtitle_summary.md` |
-| 无原语言字幕且用户同意转写 | `references/whisper.md` |
+| 无可用字幕且用户同意转写 | `references/whisper.md` |
 | 单条或多条协调者的运行统计 | `references/runtime_statistics.md`，再读当前 agent 专页（见下） |
 | 两个及以上链接 | `references/multi_video.md` |
 | output/ 有新增或更新的 Markdown（需重建 HTML 汇总页） | `references/html_viewer.md` |
@@ -64,7 +64,7 @@ metadata:
 ## 不可违反的规则
 
 1. 只支持上表平台。字幕/音频/转写/去重/HTML **必须**经 `summarize_pipeline.py`（见 `pipeline.md`）；禁止手写 `yt-dlp --list-subs` / `--print`、直接读 `.srt/.vtt`、自造各平台下载逻辑。探测阶段不得为「只要字幕」而下载视频；播客/小红书/X 无字幕经用户同意后由 pipeline 下载**仅音频**。
-2. 只选原语言字幕做总结输入，优先级为人工字幕 > 自动字幕；总结正文不要把整份字幕丢进模型。非中文视频可由 `fetch_video.py` 附带平台已有的中文对照轨；无平台中文轨时默认直接交付，不询问是否翻译，也不调用 LLM 翻译。只有用户明确要求翻译字幕时，才按 `subtitle_summary.md` 使用 `translate_srt.py` 逐条翻译。无原语言字幕时必须先询问用户，用户同意 Whisper 后才可 `download-audio` / `transcribe`。多视频时：先 `batch-probe`；只要有待确认的 `no_srt`，必须先问清 Whisper 意向，再总结任何条目。用户确认后：无须语音转文字的条目可同时派多个子 agent 并行总结——**Cursor CLI 除外**，Cursor 不记录内置子 agent 的 token，须在当前 turn 内逐条串行并**自动继续到整批完成，不得要求用户逐条回复「继续」**；每条正文**必须**优先尝试嵌套 `cursor-agent -p --output-format stream-json` worker 生成并用 `--finalize-from-result` 回填**单条实测** Token / LLM 速度（见 `runtime_cursor.md`）；仅当 `cursor-agent` 不存在或 worker 失败时才回退协调者自行串行总结，该批各条 Token / LLM 速度由脚本写入**批次实测值**并标注「本批 N 条共用」，不得去掉标注冒充单条实测。**OpenCode 也不派子 agent 总结**（子 agent 用量落在独立子会话，无法归属）：在当前会话内按输入顺序串行，每条转写稿就绪后各自 snapshot baseline，同一会话累计差即单条实测，无需批次标注，且同样自动续跑整批、不得要求用户逐条回复「继续」（见 `runtime_opencode.md`）。全批同一时刻最多只做 **1** 个 Whisper；**下一条音频下载可与当前总结或当前 Whisper 重叠（B5）**，详见 `multi_video.md`。
+2. 字幕选型不限定语言：优先原语言人工字幕 > 原语言自动字幕 > 任意语言人工字幕 > 任意语言自动字幕（由 `fetch_video.py` 执行；忽略 B 站 `danmaku`）；总结正文不要把整份字幕丢进模型。非中文主轨时可由 `fetch_video.py` 附带平台已有的中文对照轨；无平台中文轨时默认直接交付，不询问是否翻译，也不调用 LLM 翻译。只有用户明确要求翻译字幕时，才按 `subtitle_summary.md` 使用 `translate_srt.py` 逐条翻译。完全无可用字幕轨时必须先询问用户，用户同意 Whisper 后才可 `download-audio` / `transcribe`。多视频时：先 `batch-probe`；只要有待确认的 `no_srt`，必须先问清 Whisper 意向，再总结任何条目。用户确认后：无须语音转文字的条目可同时派多个子 agent 并行总结——**Cursor CLI 除外**，Cursor 不记录内置子 agent 的 token，须在当前 turn 内逐条串行并**自动继续到整批完成，不得要求用户逐条回复「继续」**；每条正文**必须**优先尝试嵌套 `cursor-agent -p --output-format stream-json` worker 生成并用 `--finalize-from-result` 回填**单条实测** Token / LLM 速度（见 `runtime_cursor.md`）；仅当 `cursor-agent` 不存在或 worker 失败时才回退协调者自行串行总结，该批各条 Token / LLM 速度由脚本写入**批次实测值**并标注「本批 N 条共用」，不得去掉标注冒充单条实测。**OpenCode 也不派子 agent 总结**（子 agent 用量落在独立子会话，无法归属）：在当前会话内按输入顺序串行，每条转写稿就绪后各自 snapshot baseline，同一会话累计差即单条实测，无需批次标注，且同样自动续跑整批、不得要求用户逐条回复「继续」（见 `runtime_opencode.md`）。全批同一时刻最多只做 **1** 个 Whisper；**下一条音频下载可与当前总结或当前 Whisper 重叠（B5）**，详见 `multi_video.md`。
 3. 临时字幕、音频与 SRT 都放在 `$SCRATCHPAD/video_summary/`（默认工作目录下 `.scratchpad/video_summary/`），不保存到用户目录。只读取 `.txt` 转写稿做总结；原文/中文 SRT 由 `register --subtitle-file` / `--zh-subtitle-file`（或 `append_srt.py`）写入 Markdown 小节，供 HTML「原文」tab 使用，勿在对话中粘贴。
 4. **成功成稿必须含「## 原文字幕」**：`register` 时**必须**传入 probe/转写的 `--subtitle-file`（Whisper 用转写 `.srt`）。`register` 后立刻用 `rg -n '^## 原文字幕' "$MD"`（或读文件）核验；缺失则重新 `append_srt.py --heading 原文字幕`，仍无则不得交付、不得 `finalize` 声称完成。平台有中文字幕则附；没有则直接交付，不主动询问或翻译。仅在用户明确要求翻译字幕时按 `subtitle_summary.md` 执行；「原文」不可省略。
 5. 开始前用 pipeline `check`（或 `probe`）查 `output/.index.json`；已总结则复用，除非用户要求重跑（`--force`）。重跑必须另存，绝不覆盖。正文不单独写「视频 ID」行，也不得写入文件名——去重依赖索引与正文链接中的真实 ID。

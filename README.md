@@ -1,6 +1,6 @@
 # video_summary
 
-给 Cursor / Claude Code / Codex / OpenCode 用的 **视频 / 播客字幕总结** skill：粘贴链接后，优先下载原语言字幕，生成带可跳转时间戳的中文 Markdown，并维护本地 HTML 汇总页。
+给 Cursor / Claude Code / Codex / OpenCode 用的 **视频 / 播客字幕总结** skill：粘贴链接后，优先下载字幕（原语言优先，否则任意可用语言），生成带可跳转时间戳的中文 Markdown，并维护本地 HTML 汇总页。
 
 Agent 执行细则见 [`SKILL.md`](./SKILL.md)；本文件给人看（安装、平台、隐私）。
 
@@ -16,7 +16,7 @@ Agent 执行细则见 [`SKILL.md`](./SKILL.md)；本文件给人看（安装、�
 | 小宇宙 | `xiaoyuzhoufm.com/episode/…` | 通常无字幕；走公开音频直链 |
 | 长桥直播 | `longbridge.com`／`longbridge.cn/…/lives/<id>` | 走平台逐字稿（公开 REST，无需登录/yt-dlp）；不支持音频/Whisper |
 
-不支持 Spotify（DRM）。无原语言字幕时，经你同意后可本地下载**仅音频**并用 Whisper 转写再总结（长桥直播除外：无逐字稿即失败）。
+不支持 Spotify（DRM）。完全没有可用字幕轨时，经你同意后可本地下载**仅音频**并用 Whisper 转写再总结（长桥直播除外：无逐字稿即失败）。
 
 ## 系统要求
 
