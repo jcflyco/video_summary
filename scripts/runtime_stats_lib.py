@@ -68,6 +68,8 @@ SKILL_INSTALL_ROOTS = (
     Path.home() / ".codex/skills/video_summary",
     # OpenCode reads ~/.claude/skills too, but also has its own global skills dir.
     Path.home() / ".config/opencode/skills/video_summary",
+    # pi reads skills from ~/.agents/skills (often a symlink to ~/.claude/skills).
+    Path.home() / ".agents/skills/video_summary",
 )
 
 

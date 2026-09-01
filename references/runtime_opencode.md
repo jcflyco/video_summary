@@ -68,7 +68,7 @@ rg -n '^## 原文字幕' "$MD_PATH"
 - **不得**手写或改写脚本写入的「运行统计」数字行（含 Token / LLM 速度）；只能通过上述 `--finalize` 回填。
 - 每条视频一个 baseline 文件；只能在该条转写稿就绪后 snapshot，禁止复用上一条的 baseline。
 - 「用时」= 下载用时 + 总结用时（Whisper 时再加语音转写用时）；起止 epoch 必须是该视频自身窗口。
-- 不要调用 `cursor_usage.py` / `claude_usage.py` / `codex_usage.py`。
+- 不要调用 `cursor_usage.py` / `claude_usage.py` / `codex_usage.py` / `pi_usage.py`。
 
 仍可用只读探测（不写 Markdown）：
 

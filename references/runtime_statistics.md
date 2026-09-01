@@ -13,7 +13,8 @@
 | 1 | `CURSOR_AGENT` 已设置，或存在 `CURSOR_CONVERSATION_ID` | Cursor | `runtime_cursor.md` |
 | 2 | `CODEX_THREAD_ID` 已设置，或进程/CLI 为 Codex | Codex | `runtime_codex.md` |
 | 3 | `OPENCODE=1` 或 `OPENCODE_PID` 已设置 | OpenCode | `runtime_opencode.md` |
-| 4 | `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` 已设置，或 CLI 为 `claude` | Claude Code | `runtime_claude.md` |
+| 4 | `PI_CODING_AGENT=true` 或 `AI_AGENT=pi` 已设置 | pi | `runtime_pi.md` |
+| 5 | `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` 已设置，或 CLI 为 `claude` | Claude Code | `runtime_claude.md` |
 
 不确定时用：
 
@@ -26,6 +27,8 @@ elif os.environ.get("CODEX_THREAD_ID"):
     print("codex")
 elif os.environ.get("OPENCODE") or os.environ.get("OPENCODE_PID"):
     print("opencode")
+elif os.environ.get("PI_CODING_AGENT") or os.environ.get("AI_AGENT") == "pi":
+    print("pi")
 elif os.environ.get("CLAUDECODE") or os.environ.get("CLAUDE_CODE_ENTRYPOINT"):
     print("claude")
 else:
@@ -33,13 +36,13 @@ else:
 PY
 ```
 
-`OPENCODE` 检查必须放在 `CLAUDECODE` 之前：OpenCode 兼容 Claude Code 的 skill 生态，可能同时带出 Claude 风格变量。勿仅凭 `CODEX_HOME` / `~/.codex` / `~/.local/share/opencode` 目录存在就判定（可能只是本机装过）。`unknown` 时也可根据实际正在用的 CLI（`cursor` / `codex` / `opencode` / `claude`）人工选定专页。
+`OPENCODE` / `PI_CODING_AGENT` 检查必须放在 `CLAUDECODE` 之前：OpenCode 与 pi 兼容 Claude Code 的 skill 生态，可能同时带出 Claude 风格变量。勿仅凭 `CODEX_HOME` / `~/.codex` / `~/.local/share/opencode` / `~/.pi` 目录存在就判定（可能只是本机装过）。`unknown` 时也可根据实际正在用的 CLI（`cursor` / `codex` / `opencode` / `pi` / `claude`）人工选定专页。
 
 `unknown` 时：仍记录墙钟与阶段用时；Token / 模型 / LLM 速度写「不可用」，并在交付时说明未能识别运行环境。
 
 ## 预检 `--doctor`（所有 Agent 共通，必须，先于 baseline）
 
-四个脚本都支持 `--doctor`：不写任何文件，只报告「当前环境能否解析出模型名与 Token」。`--doctor` 可在去重/探测前执行；**snapshot baseline 必须等压缩转写稿就绪后再执行**。退出码 `0`=ok、`2`=degraded：
+五个脚本都支持 `--doctor`：不写任何文件，只报告「当前环境能否解析出模型名与 Token」。`--doctor` 可在去重/探测前执行；**snapshot baseline 必须等压缩转写稿就绪后再执行**。退出码 `0`=ok、`2`=degraded：
 
 ```bash
 python3 "$SKILL_DIR/scripts/<agent>_usage.py" --doctor
@@ -53,6 +56,7 @@ python3 "$SKILL_DIR/scripts/<agent>_usage.py" --doctor
 | Codex `SESSION_FILE=不可用` | `CODEX_THREAD_ID` 未导出且无 6 小时内的 rollout；用 `--session <rollout.jsonl>` 指定 |
 | OpenCode `OPENCODE_DB=不可用` | 找不到 `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db`；确认 OpenCode 版本 ≥1.18（SQLite 存储）或用 `OPENCODE_DB` 环境变量指定 |
 | OpenCode `SESSION_ID=不可用` | 6 小时内没有 `directory` 匹配当前工作目录的会话；用 `--session ses_…` 显式指定 |
+| pi `SESSION_FILE=不可用` | cwd 转义目录下没有会话且 6 小时内无全局最新会话；`SESSIONS_DIR_KEY` 会打印脚本推算出的目录名，可与 `~/.pi/agent/sessions/` 实际目录对照，或用 `--session <绝对路径>` 显式指定 |
 | Cursor `HOOK_INSTALLED=不可用` | 先跑 `--ensure-hook --skill-dir "$SKILL_DIR"`，否则 Token 永远拿不到 |
 | Cursor `MODEL_DB=不可用` | 非 GUI 环境或未装 Cursor 桌面端；模型名由 stop hook / ledger 记录值回填 |
 | Cursor `MODEL=不可用` 且桌面设置为 Auto | 正常等待本轮 stop hook；不得把 `Auto` 当实际模型手写进成稿 |
@@ -60,7 +64,7 @@ python3 "$SKILL_DIR/scripts/<agent>_usage.py" --doctor
 
 `DOCTOR=degraded` 时仍可继续跑总结，但要预期对应字段写「不可用」，并在交付时说明；**不得**因此手写数字。
 
-**baseline 写不出即失败**：转写稿就绪后、读取正文前执行 `--snapshot-baseline`；四个脚本在会话不可用时会打印 `error=…baseline_not_written` 并以非零退出，不再静默跳过。看到该错误必须当场处理，否则 `--finalize` 会在最后一步报 `baseline_unreadable`，此时总结已写完、增量已无法追溯。不得在字幕探测、等待用户确认、音频下载或 Whisper 之前提前 snapshot；提前建立的 baseline 会把非 LLM 阶段混入速度窗口。
+**baseline 写不出即失败**：转写稿就绪后、读取正文前执行 `--snapshot-baseline`；五个脚本在会话不可用时会打印 `error=…baseline_not_written` 并以非零退出，不再静默跳过。看到该错误必须当场处理，否则 `--finalize` 会在最后一步报 `baseline_unreadable`，此时总结已写完、增量已无法追溯。不得在字幕探测、等待用户确认、音频下载或 Whisper 之前提前 snapshot；提前建立的 baseline 会把非 LLM 阶段混入速度窗口。
 
 ## 开始与结束（所有 Agent 共通）
 
@@ -150,13 +154,13 @@ date +"DOWNLOAD_END %s"
 
 窗口内包含总结阶段的工具执行时间，所以这是**总结阶段 agent 吞吐**，不是纯解码速度——后缀就是在说明这件事，不要删。音频下载、Whisper 和用户确认等待明确排除。
 
-Cursor / Claude / Codex / OpenCode 均由各自 `*_usage.py --finalize`（Cursor 另有 `--ensure-stats`）自动计算写入；禁止手写 Token / LLM 速度数字。
+Cursor / Claude / Codex / OpenCode / pi 均由各自 `*_usage.py --finalize`（Cursor 另有 `--ensure-stats`）自动计算写入；禁止手写 Token / LLM 速度数字。
 
 ## Markdown 字段与示例（所有 Agent 共通）
 
 成稿末尾固定结构（字段名不得改）：
 
-「模型」必须写成 `<模型名> <档位>`（如 `claude-opus-5 high`、`gpt-5.5 medium`）。四个 `*_usage.py` 都会自动从当前会话读出推理档位（effort / reasoning_effort）并拼在模型名后；档位已包含在模型名里时（如 `gpt-5.6-sol-high`）不重复追加，读不到档位时只写模型名，模型本身取不到才写「不可用」。禁止手写这一行；如需纠正档位用脚本的 `--effort <level>`（Cursor 见其专页）。
+「模型」必须写成 `<模型名> <档位>`（如 `claude-opus-5 high`、`gpt-5.5 medium`）。五个 `*_usage.py` 都会自动从当前会话读出推理档位（effort / reasoning_effort）并拼在模型名后；档位已包含在模型名里时（如 `gpt-5.6-sol-high`）不重复追加，读不到档位时只写模型名，模型本身取不到才写「不可用」。禁止手写这一行；如需纠正档位用脚本的 `--effort <level>`（Cursor 见其专页）。
 
 ```markdown
 ---

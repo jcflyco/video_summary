@@ -1,6 +1,6 @@
 # video_summary
 
-给 Cursor / Claude Code / Codex / OpenCode 用的 **视频 / 播客字幕总结** skill：粘贴链接后，优先下载字幕（原语言优先，否则任意可用语言），生成带可跳转时间戳的中文 Markdown，并维护本地 HTML 汇总页。
+给 Cursor / Claude Code / Codex / OpenCode / pi 用的 **视频 / 播客字幕总结** skill：粘贴链接后，优先下载字幕（原语言优先，否则任意可用语言），生成带可跳转时间戳的中文 Markdown，并维护本地 HTML 汇总页。
 
 Agent 执行细则见 [`SKILL.md`](./SKILL.md)；本文件给人看（安装、平台、隐私）。
 
@@ -73,6 +73,7 @@ python3 -m pip install --user faster-whisper
 - Claude Code
 - Codex
 - [OpenCode](https://opencode.ai/)（≥1.18，SQLite 存储；可直接复用 `~/.claude/skills` 安装）
+- pi（pi coding agent；从 `~/.agents/skills` 读取 skill，可用符号链接指向 `~/.claude/skills`）
 
 安装方式因 Agent 而异（例如指向本仓库的 `dev` 分支 / 将本目录放入 skills 路径）。装好后对 Agent 说：总结下面链接，或使用 `/video_summary`（若你的环境已配置 slash command）。
 
